@@ -1,0 +1,11 @@
+# Git ignore rules for Cardano Phantom POC Workspace
+node_modules/
+forks/
+data/
+.DS_Store
+
+# Secure: Ignore all active environment credentials
+.env
+.env.development
+.env.local
+.env.production

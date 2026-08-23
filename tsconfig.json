@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "node16",
+    "moduleResolution": "node16",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "paths": {
+      "@phantom/constants": ["./forks/phantom-connect-sdk/packages/constants/src/index.ts"],
+      "@phantom/sdk-types": ["./forks/phantom-connect-sdk/packages/sdk-types/src/index.ts"],
+      "@phantom/chain-interfaces": ["./forks/phantom-connect-sdk/packages/chain-interfaces/src/index.ts"]
+    }
+  }
+}

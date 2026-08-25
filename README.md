@@ -7,7 +7,7 @@ This repository contains the official, fully-functional Proof of Concept (POC) d
 * 👉 **Read the Detailed [Architectural Gap Analysis & CIP-30 Integration Details](proofs/GAP_ANALYSIS.md)**
 * 👉 **View the Custom SDK Fork on GitHub: [verbotenj/phantom-connect-sdk](https://github.com/verbotenj/phantom-connect-sdk)** *(Developer Note: This integration utilizes a custom fork of `phantom-connect-sdk` because the official upstream repository lacks native Cardano/CIP-30 support. Please note that **this fork is unmaintained** and exists **strictly and exclusively as a Proof of Concept (POC)**. It has been aligned with standard CIP-30 specifications and compiles warning-free).*
 
-Supported and powered by **[Demeter.run](https://demeter.run/)** (run jointly by **[TxPipe](https://txpipe.io/)** and **[Blink Labs](https://blinklabs.io/)**, two independent engineering teams you already know from the Cardano ecosystem), providing world-class, production-grade cloud infrastructure, Node hosting, and Blockfrost RYO APIs for the Cardano developer ecosystem.
+Supported and powered by **[Demeter.run](https://demeter.run/)** (run jointly by **[TxPipe](https://txpipe.io/)** and **[Blink Labs](https://blinklabs.io/)**, two independent engineering teams you already know from the Cardano ecosystem), providing world-class, production-grade cloud infrastructure, Node hosting, and Blockfrost API Gateways for the Cardano developer ecosystem.
 
 ---
 
@@ -242,8 +242,18 @@ The integration test script (`test_sdk_integration.ts`) serves as the "glue" tha
 
 This ensures:
 
-1. **Direct Class Compilation Verification:** The test script directly imports the raw `CardanoProvider` TypeScript file we added inside `./forks/phantom-connect-sdk/packages/browser-injected-sdk/src/cardano/provider.ts` to prove it compiles and binds cleanly.
-2. **Real Message Passing Handshakes:** Your SDK provider class naturally executes `window.postMessage` to communicate with Chrome. By mocking `window` on the Node.js `global` scope, we intercept these messages, relay them to the gateway proxy (which handles the on-chain cryptographic signatures), and dispatch standard browser `MessageEvent` objects back to the provider, perfectly simulating a real browser window execution with **zero mocks and zero heavy display overhead!**
+1. **Direct Class Compilation Verification:** The test script directly imports
+   the raw `CardanoProvider` TypeScript file we added inside
+   `./forks/phantom-connect-sdk/packages/browser-injected-sdk/src/cardano/provider.ts`
+   to prove it compiles and binds cleanly.
+2. **Real Message Passing Handshakes:** Your SDK provider class naturally
+   executes `window.postMessage` to communicate with Chrome. By mocking `window`
+   on the Node.js `global` scope, we intercept these messages, relay them to the
+   gateway proxy (which handles the on-chain cryptographic signatures), and
+   dispatch standard browser `MessageEvent` objects back to the provider,
+   perfectly simulating a real browser window execution with **zero mocks and
+   zero heavy display overhead!**
+```
 
 ---
 
@@ -251,14 +261,33 @@ This ensures:
 
 ### 1. Experimental Nature & "AS IS" Warranty
 
-This repository is an **experimental Proof of Concept (POC)** demonstrating Cardano CIP-30 wallet provider support integrated within a simulated multi-chain SDK. The software is provided **"AS IS"**, without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and noninfringement. In no event shall the authors or copyright holders be liable for any claim, damages, or other liability, whether in an action of contract, tort, or otherwise, arising from, out of, or in connection with the software or the use or other dealings in the software.
+This repository is an **experimental Proof of Concept (POC)** demonstrating
+Cardano CIP-30 wallet provider support integrated within a simulated multi-chain
+SDK. The software is provided **"AS IS"**, without warranty of any kind,
+express or implied, including but not limited to the warranties of
+merchantability, fitness for a particular purpose, and noninfringement. In no
+event shall the authors or copyright holders be liable for any claim, damages,
+or other liability, whether in an action of contract, tort, or otherwise,
+arising from, out of, or in connection with the software or the use or other
+dealings in the software.
 
 ### 2. Custom SDK Fork Status
 
-The custom SDK fork repository linked herein (`https://github.com/verbotenj/phantom-connect-sdk`) is **completely unmaintained** and exists **exclusively for the purpose of validating this E2E integration proof.** It should not be used as an active, production-grade release library.
+The custom SDK fork repository linked herein
+(`https://github.com/verbotenj/phantom-connect-sdk`) is **completely
+unmaintained** and exists **exclusively for the purpose of validating this E2E
+integration proof.** It should not be used as an active, production-grade
+release library.
 
 ### 3. Cryptographic Key & Seed Phrase Protection
 
-* **Testnet-Only Requirement:** This POC is strictly designed, developed, and tested using the **Cardano Preview Testnet**.
-* **Zero Mainnet Assets:** Under **no circumstances** should you populate `.env.development` or any local configuration variables with mnemonic seed phrases, private keys, or credentials that hold active, real-world assets on the Cardano Mainnet.
-* **Secret Leak Mitigation:** The configuration file `.env.development` is explicitly ignored inside `.gitignore` to prevent accidental staging or committing of local credentials to Git. Always protect your mnemonic seed phrases and keep them secure.
+* **Testnet-Only Requirement:** This POC is strictly designed, developed, and
+  tested using the **Cardano Preview Testnet**.
+* **Zero Mainnet Assets:** Under **no circumstances** should you populate
+  `.env.development` or any local configuration variables with mnemonic seed
+  phrases, private keys, or credentials that hold active, real-world assets on
+  the Cardano Mainnet.
+* **Secret Leak Mitigation:** The configuration file `.env.development` is
+  explicitly ignored inside `.gitignore` to prevent accidental staging or
+  committing of local credentials to Git. Always protect your mnemonic seed
+  phrases and keep them secure.

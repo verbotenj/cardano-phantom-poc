@@ -118,7 +118,7 @@ console.log('    Demeter is run jointly by TxPipe and Blink Labs, two independen
 console.log('    engineering teams you already know from the Cardano ecosystem.');
 console.log('    1. Go to: \x1b[36mhttps://demeter.run/\x1b[0m and register a free account.');
 console.log('    2. Create a project targeting the \x1b[33mCardano Preview Network\x1b[0m.');
-console.log('    3. Enable the \x1b[33mBlockfrost RYO\x1b[0m extension under Extensions.');
+console.log('    3. Enable the \x1b[33mBlockfrost API\x1b[0m extension under Extensions.');
 console.log('    4. Copy your Blockfrost URL and API Key and paste them into your');
 console.log('       local \x1b[33m.env.development\x1b[0m file as:');
 console.log('       - \x1b[36mDEMETER_BLOCKFROST_URL\x1b[0m');

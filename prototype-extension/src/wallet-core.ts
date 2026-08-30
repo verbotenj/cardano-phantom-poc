@@ -75,6 +75,16 @@ async function stakeRegistered(wallet: ReturnType<typeof derive>) {
   return account?.status === "registered";
 }
 
+function page<T>(items: T[], paginate: any) {
+  if (paginate === undefined) return items;
+  if (!paginate || !Number.isSafeInteger(paginate.page) || paginate.page < 0 || !Number.isSafeInteger(paginate.limit) || paginate.limit < 1 || paginate.limit > 50) {
+    throw { maxSize: 50 };
+  }
+  const start = paginate.page * paginate.limit;
+  if (start >= items.length && items.length > 0) throw { maxSize: Math.ceil(items.length / paginate.limit) };
+  return items.slice(start, start + paginate.limit);
+}
+
 function witnessSet(txHex: string, keys: any[]) {
   const transaction = CSL.FixedTransaction.from_hex(txHex);
   const hash = transaction.transaction_hash();
@@ -87,7 +97,28 @@ function witnessSet(txHex: string, keys: any[]) {
 
 const credentialHash = (credential: any) => credential?.to_keyhash()?.to_hex();
 
-async function transactionWitnesses(txHex: string, partialSign: boolean, wallet: ReturnType<typeof derive>) {
+function assertGovernanceAccess(body: any, wallet: ReturnType<typeof derive>, cip95Enabled: boolean) {
+  if (cip95Enabled) return;
+  const drepKinds = [CSL.CertificateKind.DRepRegistration, CSL.CertificateKind.DRepDeregistration, CSL.CertificateKind.DRepUpdate];
+  const certs = body.certs();
+  if (certs) for (let index = 0; index < certs.len(); index++) {
+    if (drepKinds.includes(certs.get(index).kind())) throw { code: -3, info: "CIP-95 must be enabled to sign DRep transactions." };
+  }
+  const drepHash = bytesToHex(blake2b(wallet.drep.to_public().as_bytes(), { dkLen: 28 }));
+  const signers = body.required_signers();
+  if (signers) for (let index = 0; index < signers.len(); index++) {
+    if (signers.get(index).to_hex() === drepHash) throw { code: -3, info: "CIP-95 must be enabled to sign DRep transactions." };
+  }
+  const voting = body.voting_procedures();
+  if (voting) {
+    const voters = voting.get_voters();
+    for (let index = 0; index < voters.len(); index++) {
+      if (voters.get(index).kind() === CSL.VoterKind.DRepKeyHash) throw { code: -3, info: "CIP-95 must be enabled to sign DRep transactions." };
+    }
+  }
+}
+
+async function transactionWitnesses(txHex: string, partialSign: boolean, wallet: ReturnType<typeof derive>, cip95Enabled: boolean) {
   const walletUtxos = await getUtxos(wallet);
   let transaction;
   try {
@@ -96,6 +127,7 @@ async function transactionWitnesses(txHex: string, partialSign: boolean, wallet:
     throw { code: -1, info: "Invalid transaction CBOR." };
   }
   const body = transaction.body();
+  assertGovernanceAccess(body, wallet, cip95Enabled);
   const paymentHash = wallet.payment.to_public().hash().to_hex();
   const stakeHash = wallet.stake.to_public().hash().to_hex();
   const drepHash = bytesToHex(blake2b(wallet.drep.to_public().as_bytes(), { dkLen: 28 }));
@@ -188,12 +220,13 @@ export const walletCore = {
       drepPublicKey: bytesToHex(wallet.drep.to_public().as_bytes()),
     };
   },
-  inspectRequest(method: string, params: any, config: { mnemonic: string }) {
+  inspectRequest(method: string, params: any, config: { mnemonic: string }, cip95Enabled = false) {
     const wallet = derive(config.mnemonic);
     if (method === "signTx") {
       if (typeof params?.partialSign !== "undefined" && typeof params.partialSign !== "boolean") throw { code: -1, info: "partialSign must be a boolean." };
       let transaction;
       try { transaction = CSL.FixedTransaction.from_hex(params?.tx); } catch { throw { code: -1, info: "Invalid transaction CBOR." }; }
+      assertGovernanceAccess(transaction.body(), wallet, cip95Enabled);
       const certs = transaction.body().certs();
       if (certs) for (let index = 0; index < certs.len(); index++) {
         const kind = certs.get(index).kind();
@@ -203,6 +236,7 @@ export const walletCore = {
       }
       return JSON.stringify({
         purpose: "Sign Cardano Preview transaction",
+        walletAddress: wallet.address.to_bech32(),
         transactionBodyHash: transaction.transaction_hash().to_hex(),
         partialSign: params?.partialSign === true,
         body: JSON.parse(transaction.body().to_json()),
@@ -234,15 +268,14 @@ export const walletCore = {
     if (method === "getUsedAddresses" || method === "getUnusedAddresses") {
       const [info] = await koios("address_info", { _addresses: [wallet.address.to_bech32()] });
       const used = Boolean(info);
-      return method === "getUsedAddresses" ? (used ? [wallet.address.to_hex()] : []) : (used ? [] : [wallet.address.to_hex()]);
+      const addresses = method === "getUsedAddresses" ? (used ? [wallet.address.to_hex()] : []) : (used ? [] : [wallet.address.to_hex()]);
+      return method === "getUsedAddresses" ? page(addresses, params?.paginate) : addresses;
     }
     if (method === "getRewardAddresses") return [wallet.reward.to_hex()];
     if (method === "getUtxos") {
       const utxos = await getUtxos(wallet);
       const paginate = params?.paginate;
-      if (paginate && (!Number.isSafeInteger(paginate.page) || paginate.page < 0 || !Number.isSafeInteger(paginate.limit) || paginate.limit < 1 || paginate.limit > 50)) {
-        throw { maxSize: 50 };
-      }
+      if (paginate) page([], paginate);
       let selected = utxos;
       if (params?.amount) {
         let target;
@@ -256,12 +289,7 @@ export const walletCore = {
         }
         try { total.checked_sub(target); } catch { return null; }
       }
-      if (paginate) {
-        const start = paginate.page * paginate.limit;
-        if (start >= selected.length && selected.length > 0) throw { maxSize: Math.ceil(selected.length / paginate.limit) };
-        selected = selected.slice(start, start + paginate.limit);
-      }
-      return selected;
+      return page(selected, paginate);
     }
     if (method === "getBalance") {
       let total = CSL.Value.zero();
@@ -270,7 +298,7 @@ export const walletCore = {
     }
     if (method === "signTx") {
       if (typeof params?.partialSign !== "undefined" && typeof params.partialSign !== "boolean") throw { code: -1, info: "partialSign must be a boolean." };
-      return transactionWitnesses(params.tx, params.partialSign === true, wallet);
+      return transactionWitnesses(params.tx, params.partialSign === true, wallet, cip95Enabled);
     }
     if (method === "signData") {
       let address = params.addr;

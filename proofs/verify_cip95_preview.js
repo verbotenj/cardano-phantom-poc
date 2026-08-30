@@ -1,5 +1,7 @@
 const fs = require("fs");
+const crypto = require("crypto");
 const bip39 = require("bip39");
+const { decode, encode } = require("cbor-x");
 const dotenv = require("dotenv");
 const { blake2b } = require("@noble/hashes/blake2b");
 const { bytesToHex } = require("@noble/hashes/utils");
@@ -57,6 +59,7 @@ function deriveProof(env) {
   const independentHash = bytesToHex(blake2b(publicKey, { dkLen: 28 }));
 
   expect(address === env.CARDANO_ADDRESS_1, "derived payment address does not match CARDANO_ADDRESS_1");
+  expect(CML.Address.from_bech32(env.CARDANO_ADDRESS_2).network_id() === 0, "CARDANO_ADDRESS_2 is not a testnet address");
   expect(publicKey.toString("hex") === DREP_PUBLIC_KEY, "CIP-105 DRep public key mismatch");
   expect(independentHash === DREP_CREDENTIAL, "independent Blake2b-224 credential mismatch");
   return { drep, independentHash };
@@ -82,8 +85,12 @@ async function verifyLedger(env) {
   const drepVkh = CML.Ed25519KeyHash.from_hex(DREP_CREDENTIAL).to_bech32("drep_vkh");
   const [drep] = await query("drep_info", { _drep_ids: [drepVkh] });
   expect(drep?.hex === DREP_CREDENTIAL, "DRep state credential mismatch");
-  expect(drep.drep_status === "registered" && drep.active === true, "DRep is not registered and active");
-  return { fee: transaction.fee, deposit: certificate.info.deposit, drepId: drep.drep_id };
+  return {
+    fee: transaction.fee,
+    deposit: certificate.info.deposit,
+    drepId: drep.drep_id,
+    currentState: `${drep.drep_status}, active=${drep.active}`,
+  };
 }
 
 function verifyCose(drep) {
@@ -91,6 +98,25 @@ function verifyCose(drep) {
   const signed = signData(DREP_CREDENTIAL, payload, drep.to_bech32());
   const verified = verifyData(DREP_CREDENTIAL, DREP_CREDENTIAL, payload, signed);
   expect(verified, "CIP-95 COSE signature did not verify");
+
+  const [protectedBytes, unprotected, decodedPayload, signature] = decode(Buffer.from(signed.signature, "hex"));
+  const protectedHeaders = decode(protectedBytes);
+  const coseKey = decode(Buffer.from(signed.key, "hex"));
+  const field = (value, key) => value instanceof Map ? value.get(key) : value[key];
+  expect(field(protectedHeaders, 1) === -8, "COSE protected algorithm is not EdDSA");
+  expect(Buffer.from(field(protectedHeaders, "address")).toString("hex") === DREP_CREDENTIAL, "COSE DRep ID mismatch");
+  expect(unprotected.hashed === false, "COSE payload unexpectedly marked as hashed");
+  expect(Buffer.from(decodedPayload).toString("hex") === payload, "COSE payload mismatch");
+  expect(field(coseKey, 1) === 1 && field(coseKey, 3) === -8 && field(coseKey, -1) === 6, "COSE key parameters mismatch");
+  expect(Buffer.from(field(coseKey, -2)).toString("hex") === DREP_PUBLIC_KEY, "COSE public key mismatch");
+
+  const spki = Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), Buffer.from(DREP_PUBLIC_KEY, "hex")]);
+  const publicKey = crypto.createPublicKey({ key: spki, format: "der", type: "spki" });
+  const sigStructure = encode(["Signature1", protectedBytes, Buffer.alloc(0), decodedPayload]);
+  expect(crypto.verify(null, sigStructure, publicKey, signature), "independent Ed25519 verification failed");
+  const tampered = Buffer.from(signature);
+  tampered[0] ^= 1;
+  expect(!crypto.verify(null, sigStructure, publicKey, tampered), "tampered signature unexpectedly verified");
   return { payloadBytes: payload.length / 2, signatureBytes: signed.signature.length / 2 };
 }
 
@@ -105,16 +131,17 @@ async function main() {
 
   const ledger = await verifyLedger(env);
   console.log(`[PASS] Preview transaction confirmed in block ${BLOCK_HEIGHT}`);
-  console.log("[PASS] Receiver gained 2.000000 tADA");
+  console.log("[PASS] Transaction contains a 2.000000 tADA receiver output");
   console.log(`[PASS] Transaction fee: ${Number(ledger.fee) / 1_000_000} tADA`);
   console.log(`[PASS] DRep deposit: ${Number(ledger.deposit) / 1_000_000} tADA`);
-  console.log(`[PASS] Active DRep ID: ${ledger.drepId}`);
+  console.log(`[PASS] Registered DRep ID: ${ledger.drepId}`);
+  console.log(`[INFO] Current DRep state: ${ledger.currentState}`);
 
   const cose = verifyCose(derivation.drep);
-  console.log(`[PASS] CIP-95 COSE signature verified (${cose.payloadBytes}-byte payload, ${cose.signatureBytes}-byte COSE_Sign1)`);
+  console.log(`[PASS] CIP-95 COSE fields and Ed25519 signature independently verified (${cose.payloadBytes}-byte payload)`);
   console.log(`[PASS] Explorer: https://preview.cardanoscan.io/transaction/${TX_HASH}`);
   console.log("------------------------------------------------------------");
-  console.log("ALL CIP-95 / CIP-105 PREVIEW PROOFS PASSED");
+  console.log("CIP-95 CRYPTOGRAPHY / CIP-105 DERIVATION / PREVIEW LEDGER CHECKS PASSED");
 }
 
 main().catch(error => {

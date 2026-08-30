@@ -31,7 +31,7 @@ test("installed extension injects an origin-approved base bridge", async () => {
         supportedExtensions: provider.supportedExtensions,
       };
     });
-    expect(metadata).toEqual({ name: "Cardano Prototype (Unofficial)", apiVersion: "1", supportedExtensions: [] });
+    expect(metadata).toEqual({ name: "Cardano Prototype (Unofficial)", apiVersion: "1", supportedExtensions: [{ cip: 95 }] });
     await expect(page.evaluate(() => window.cardano.phantomPrototype.isEnabled())).resolves.toBe(false);
 
     const approvalPromise = context.waitForEvent("page");
@@ -45,9 +45,9 @@ test("installed extension injects an origin-approved base bridge", async () => {
     await approval.waitForLoadState();
     await expect(approval.locator("h1")).toHaveText("Connect Cardano wallet?");
     await expect(approval.locator("#origin")).toHaveText(`http://127.0.0.1:${port}`);
-    await expect(approval.locator("#extensions")).toHaveText("None");
+    await expect(approval.locator("#extensions")).toHaveText("CIP-95");
     await approval.locator("#approve").click();
-    await expect(enablePromise).resolves.toEqual({ extensions: [], cip95: false });
+    await expect(enablePromise).resolves.toEqual({ extensions: [{ cip: 95 }], cip95: true });
     await expect(page.evaluate(() => window.cardano.phantomPrototype.isEnabled())).resolves.toBe(true);
     await expect(page.evaluate(() => window.cardano.phantomPrototype.enable().then(api => Boolean(api.cip95)))).resolves.toBe(false);
 

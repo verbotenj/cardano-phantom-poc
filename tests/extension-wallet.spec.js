@@ -123,6 +123,37 @@ test("installed extension derives CIP-105 key and signs CIP-95 data", async () =
     await fullPopup.locator("#approve").click();
     expect(await fullPromise).toEqual({ code: 1, info: "Wallet cannot produce every required transaction witness." });
 
+    const governanceBody = CSL.TransactionBody.new(inputs, outputs, CSL.BigNum.from_str("200000"));
+    const certificates = CSL.Certificates.new();
+    certificates.add(CSL.Certificate.new_drep_registration(CSL.DRepRegistration.new(
+      CSL.Credential.from_keyhash(CSL.Ed25519KeyHash.from_hex(drepId)),
+      CSL.BigNum.from_str("500000000"),
+    )));
+    governanceBody.set_certs(certificates);
+    const governanceTx = CSL.Transaction.new(governanceBody, CSL.TransactionWitnessSet.new()).to_hex();
+
+    const basePage = await context.newPage();
+    await basePage.goto(`http://localhost:${port}`);
+    await basePage.waitForFunction(() => window.cardano?.phantomPrototype);
+    const basePopupPromise = context.waitForEvent("page");
+    const baseConnect = basePage.evaluate(() => window.cardano.phantomPrototype.enable().then(api => { window.baseWallet = api; }));
+    const basePopup = await basePopupPromise;
+    await basePopup.locator("#approve").click();
+    await baseConnect;
+    const gated = await basePage.evaluate(tx => window.baseWallet.signTx(tx, true).then(() => null, error => error), governanceTx);
+    expect(gated).toEqual({ code: -3, info: "CIP-95 must be enabled to sign DRep transactions." });
+
+    const governancePopupPromise = context.waitForEvent("page");
+    const governanceWitnessPromise = page.evaluate(tx => window.proofWallet.signTx(tx, true), governanceTx);
+    const governancePopup = await governancePopupPromise;
+    await expect(governancePopup.locator("#details")).toContainText('"DRepRegistration"');
+    await governancePopup.locator("#approve").click();
+    const governanceWitnesses = CSL.TransactionWitnessSet.from_hex(await governanceWitnessPromise).vkeys();
+    expect(governanceWitnesses.len()).toBe(1);
+    const drepWitness = governanceWitnesses.get(0);
+    expect(Buffer.from(blake2b(drepWitness.vkey().public_key().as_bytes(), { dkLen: 28 })).toString("hex")).toBe(drepId);
+    expect(drepWitness.vkey().public_key().verify(CSL.FixedTransaction.from_hex(governanceTx).transaction_hash().to_bytes(), drepWitness.signature())).toBe(true);
+
     await setup.locator("#mnemonic").fill(entropyToMnemonic(new Uint8Array(16), wordlist));
     await setup.locator("#save").click();
     await expect(setup.locator("#mnemonic")).toHaveValue("");

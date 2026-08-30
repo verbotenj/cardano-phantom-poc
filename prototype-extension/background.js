@@ -16,29 +16,33 @@ async function enabledExtensions(origin) {
   return stored[connectionKey(origin)]?.extensions ?? [];
 }
 
-async function requestApproval(origin, extensions) {
+function requestApproval(origin, extensions) {
   if (approvalsByOrigin.has(origin)) return approvalsByOrigin.get(origin);
   const approvalId = crypto.randomUUID();
-  const decision = new Promise(async resolve => {
-    const query = new URLSearchParams({ approvalId, origin, extensions: JSON.stringify(extensions) });
-    const popup = await chrome.windows.create({
+  let resolveDecision;
+  const decision = new Promise(resolve => { resolveDecision = resolve; });
+  const pending = { windowId: null, timer: null, finish: null };
+  pending.finish = approved => {
+    if (!pendingApprovals.has(approvalId)) return;
+    clearTimeout(pending.timer);
+    pendingApprovals.delete(approvalId);
+    approvalsByOrigin.delete(origin);
+    resolveDecision(approved);
+  };
+  pending.timer = setTimeout(() => pending.finish(false), APPROVAL_TIMEOUT_MS);
+  pendingApprovals.set(approvalId, pending);
+  approvalsByOrigin.set(origin, decision);
+
+  const query = new URLSearchParams({ approvalId, origin, extensions: JSON.stringify(extensions) });
+  chrome.windows.create({
       url: chrome.runtime.getURL(`approval.html?${query}`),
       type: "popup",
       width: 420,
       height: 540,
-    });
-    const finish = approved => {
-      const pending = pendingApprovals.get(approvalId);
-      if (!pending) return;
-      clearTimeout(pending.timer);
-      pendingApprovals.delete(approvalId);
-      approvalsByOrigin.delete(origin);
-      resolve(approved);
-    };
-    const timer = setTimeout(() => finish(false), APPROVAL_TIMEOUT_MS);
-    pendingApprovals.set(approvalId, { finish, windowId: popup.id, timer });
-  });
-  approvalsByOrigin.set(origin, decision);
+    }).then(popup => {
+      if (popup?.id === undefined) pending.finish(false);
+      else pending.windowId = popup.id;
+    }, () => pending.finish(false));
   return decision;
 }
 

@@ -8,14 +8,15 @@ const titles = {
   "cip95.signData": "Sign with DRep key?",
 };
 document.querySelector("h1").textContent = titles[kind] || "Approve Cardano request?";
+document.querySelector("#approve").textContent = kind === "connect" ? "Connect" : "Sign";
 document.querySelector("#origin").textContent = query.get("origin") || "Unknown origin";
 const extensions = JSON.parse(query.get("extensions") || "[]");
 document.querySelector("#extensions").textContent = extensions.length ? extensions.map(item => `CIP-${item.cip}`).join(", ") : "None";
-const details = query.get("details");
-if (details) {
+if (kind !== "connect") chrome.runtime.sendMessage({ type: "approval-details", approvalId }).then(response => {
+  if (!response?.result) return;
   document.querySelector("#signing-details").hidden = false;
-  document.querySelector("#details").textContent = details;
-}
+  document.querySelector("#details").textContent = response.result;
+});
 
 async function decide(approved) {
   await chrome.runtime.sendMessage({ type: "approval-decision", approvalId, approved });

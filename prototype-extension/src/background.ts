@@ -24,7 +24,7 @@ function requestApproval(origin, extensions, kind = "connect", details = "") {
   const approvalId = crypto.randomUUID();
   let resolveDecision;
   const decision = new Promise(resolve => { resolveDecision = resolve; });
-  const pending = { windowId: null, timer: null, finish: null };
+  const pending = { windowId: null, timer: null, finish: null, details };
   pending.finish = approved => {
     if (!pendingApprovals.has(approvalId)) return;
     clearTimeout(pending.timer);
@@ -36,7 +36,7 @@ function requestApproval(origin, extensions, kind = "connect", details = "") {
   pendingApprovals.set(approvalId, pending);
   approvalsByOrigin.set(approvalKey, decision);
 
-  const query = new URLSearchParams({ approvalId, origin, extensions: JSON.stringify(extensions), kind, details });
+  const query = new URLSearchParams({ approvalId, origin, extensions: JSON.stringify(extensions), kind });
   chrome.windows.create({
       url: chrome.runtime.getURL(`approval.html?${query}`),
       type: "popup",
@@ -103,6 +103,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const pending = pendingApprovals.get(message.approvalId);
     pending?.finish(message.approved === true);
     sendResponse({ ok: Boolean(pending) });
+    return;
+  }
+  if (message?.type === "approval-details") {
+    if (!sender.url?.startsWith(chrome.runtime.getURL("approval.html?"))) {
+      sendResponse(error(-3, "Approval details are restricted to the approval page."));
+      return;
+    }
+    const pending = pendingApprovals.get(message.approvalId);
+    sendResponse(pending ? result(pending.details) : error(-2, "Approval request expired."));
     return;
   }
 

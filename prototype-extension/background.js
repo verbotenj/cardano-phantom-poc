@@ -1,5 +1,4 @@
 const pendingApprovals = new Map();
-const SUPPORTED_EXTENSIONS = [{ cip: 95 }];
 
 const connectionKey = origin => `connected:${origin}`;
 const result = value => ({ result: value });
@@ -7,7 +6,12 @@ const error = (code, info) => ({ error: { code, info } });
 
 async function isConnected(origin) {
   const stored = await chrome.storage.local.get(connectionKey(origin));
-  return stored[connectionKey(origin)] === true;
+  return Boolean(stored[connectionKey(origin)]);
+}
+
+async function enabledExtensions(origin) {
+  const stored = await chrome.storage.local.get(connectionKey(origin));
+  return stored[connectionKey(origin)]?.extensions ?? [];
 }
 
 async function requestApproval(origin, extensions) {
@@ -44,11 +48,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!Array.isArray(requested)) return error(-1, "Invalid extensions request.");
       const extensions = requested.filter(item => item?.cip === 95);
       if (!(await requestApproval(origin, extensions))) return error(-3, "User declined enablement.");
-      await chrome.storage.local.set({ [connectionKey(origin)]: true });
+      await chrome.storage.local.set({ [connectionKey(origin)]: { extensions } });
       return result({ enabled: true, extensions });
     }
     if (!(await isConnected(origin))) return error(-3, "Origin is not connected.");
-    if (message.method === "getExtensions") return result(SUPPORTED_EXTENSIONS);
+    if (message.method === "getExtensions") return result(await enabledExtensions(origin));
     return error(-2, `Prototype method is not implemented yet: ${message.method}`);
   };
   respond().then(sendResponse, cause => sendResponse(error(-2, cause?.message || String(cause))));

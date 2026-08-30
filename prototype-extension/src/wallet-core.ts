@@ -54,17 +54,18 @@ async function koios(path: string, body: object) {
 
 async function getUtxos(wallet: ReturnType<typeof derive>) {
   const rows = await koios("address_utxos", { _addresses: [wallet.address.to_bech32()], _extended: true });
-  return rows.map((row: any) => {
+  return (rows ?? []).map((row: any) => {
     const input = CSL.TransactionInput.new(CSL.TransactionHash.from_hex(row.tx_hash), row.tx_index);
     const value = CSL.Value.new(CSL.BigNum.from_str(row.value));
     if (row.asset_list?.length) {
       const multiAsset = CSL.MultiAsset.new();
+      const policies = new Map<string, any>();
       for (const asset of row.asset_list) {
-        const policy = CSL.ScriptHash.from_hex(asset.policy_id);
-        const assets = multiAsset.get(policy) || CSL.Assets.new();
+        const assets = policies.get(asset.policy_id) || CSL.Assets.new();
         assets.insert(CSL.AssetName.new(hexToBytes(asset.asset_name)), CSL.BigNum.from_str(asset.quantity));
-        multiAsset.insert(policy, assets);
+        policies.set(asset.policy_id, assets);
       }
+      for (const [policy, assets] of policies) multiAsset.insert(CSL.ScriptHash.from_hex(policy), assets);
       value.set_multiasset(multiAsset);
     }
     const output = CSL.TransactionOutput.new(CSL.Address.from_bech32(row.address), value);
@@ -84,7 +85,7 @@ function witnessSet(txHex: string, keys: any[]) {
   const list = CSL.Vkeywitnesses.new();
   for (const key of keys) list.add(CSL.make_vkey_witness(hash, key));
   const witnesses = CSL.TransactionWitnessSet.new();
-  witnesses.set_vkeys(list);
+  if (keys.length) witnesses.set_vkeys(list);
   return witnesses.to_hex();
 }
 
@@ -104,6 +105,11 @@ async function transactionWitnesses(txHex: string, partialSign: boolean, wallet:
   const keys = new Map([[paymentHash, wallet.payment], [stakeHash, wallet.stake], [drepHash, wallet.drep]]);
   const required = new Set<string>();
   let missing = false;
+  const existing = new Set<string>();
+  const existingVkeys = transaction.witness_set()?.vkeys?.();
+  if (existingVkeys) for (let index = 0; index < existingVkeys.len(); index++) {
+    existing.add(existingVkeys.get(index).vkey().public_key().hash().to_hex());
+  }
 
   const knownInputs = new Set((await getUtxos(wallet)).map(hex => {
     const input = CSL.TransactionUnspentOutput.from_hex(hex).input();
@@ -112,6 +118,12 @@ async function transactionWitnesses(txHex: string, partialSign: boolean, wallet:
   const inputs = body.inputs();
   for (let index = 0; index < inputs.len(); index++) {
     const input = inputs.get(index);
+    if (knownInputs.has(`${input.transaction_id().to_hex()}#${input.index()}`)) required.add(paymentHash);
+    else missing = true;
+  }
+  const collateral = body.collateral();
+  if (collateral) for (let index = 0; index < collateral.len(); index++) {
+    const input = collateral.get(index);
     if (knownInputs.has(`${input.transaction_id().to_hex()}#${input.index()}`)) required.add(paymentHash);
     else missing = true;
   }
@@ -134,14 +146,15 @@ async function transactionWitnesses(txHex: string, partialSign: boolean, wallet:
       hash = stakeCert && credentialHash(stakeCert.stake_credential());
     }
     if (hash && keys.has(hash)) required.add(hash);
-    else if (hash || [CSL.CertificateKind.PoolRegistration, CSL.CertificateKind.PoolRetirement, CSL.CertificateKind.CommitteeHotAuth, CSL.CertificateKind.CommitteeColdResign].includes(kind)) missing = true;
+    else if (hash && !existing.has(hash)) missing = true;
+    else if (!hash || [CSL.CertificateKind.PoolRegistration, CSL.CertificateKind.PoolRetirement, CSL.CertificateKind.CommitteeHotAuth, CSL.CertificateKind.CommitteeColdResign].includes(kind)) missing = true;
   }
 
   const explicit = body.required_signers();
   if (explicit) for (let index = 0; index < explicit.len(); index++) {
     const hash = explicit.get(index).to_hex();
     if (keys.has(hash)) required.add(hash);
-    else missing = true;
+    else if (!existing.has(hash)) missing = true;
   }
   const withdrawals = body.withdrawals();
   if (withdrawals) {
@@ -166,7 +179,7 @@ async function transactionWitnesses(txHex: string, partialSign: boolean, wallet:
       }
     }
   }
-  if ((!partialSign && missing) || required.size === 0) throw { code: 1, info: "Wallet cannot produce every required transaction witness." };
+  if (!partialSign && missing) throw { code: 1, info: "Wallet cannot produce every required transaction witness." };
   return witnessSet(txHex, [...required].map(hash => keys.get(hash)));
 }
 
@@ -181,7 +194,16 @@ export const walletCore = {
   inspectRequest(method: string, params: any, config: { mnemonic: string }) {
     const wallet = derive(config.mnemonic);
     if (method === "signTx") {
-      const transaction = CSL.FixedTransaction.from_hex(params?.tx);
+      if (typeof params?.partialSign !== "undefined" && typeof params.partialSign !== "boolean") throw { code: -1, info: "partialSign must be a boolean." };
+      let transaction;
+      try { transaction = CSL.FixedTransaction.from_hex(params?.tx); } catch { throw { code: -1, info: "Invalid transaction CBOR." }; }
+      const certs = transaction.body().certs();
+      if (certs) for (let index = 0; index < certs.len(); index++) {
+        const kind = certs.get(index).kind();
+        if (kind === CSL.CertificateKind.GenesisKeyDelegation || kind === CSL.CertificateKind.MoveInstantaneousRewardsCert) {
+          throw { code: 3, info: "Deprecated certificate is not supported in Conway transactions." };
+        }
+      }
       return JSON.stringify({
         purpose: "Sign Cardano Preview transaction",
         transactionBodyHash: transaction.transaction_hash().to_hex(),
@@ -196,6 +218,13 @@ export const walletCore = {
       const expected = bytesToHex(blake2b(wallet.drep.to_public().as_bytes(), { dkLen: 28 }));
       if (address !== expected) throw { code: 1, info: "DRep ID does not belong to the configured wallet." };
     } else {
+      let decoded;
+      try { decoded = CSL.Address.from_bech32(address); } catch {
+        try { decoded = CSL.Address.from_hex(address); } catch { throw { code: -1, info: "Invalid Cardano address." }; }
+      }
+      const credential = CSL.RewardAddress.from_address(decoded)?.payment_cred() || CSL.BaseAddress.from_address(decoded)?.payment_cred() ||
+        CSL.EnterpriseAddress.from_address(decoded)?.payment_cred() || CSL.PointerAddress.from_address(decoded)?.payment_cred();
+      if (credential && !credential.to_keyhash()) throw { code: 2, info: "Address is controlled by a script, not a public key." };
       const accepted = [wallet.address.to_hex(), wallet.address.to_bech32(), wallet.reward.to_hex(), wallet.reward.to_bech32()];
       if (!accepted.includes(address)) throw { code: 1, info: "Address does not belong to the configured wallet." };
     }
@@ -215,9 +244,9 @@ export const walletCore = {
       const utxos = await getUtxos(wallet);
       const paginate = params?.paginate;
       if (paginate && (!Number.isSafeInteger(paginate.page) || paginate.page < 0 || !Number.isSafeInteger(paginate.limit) || paginate.limit < 1 || paginate.limit > 50)) {
-        throw { code: -1, info: "Invalid pagination.", maxSize: 50 };
+        throw { maxSize: 50 };
       }
-      let selected = paginate ? utxos.slice(paginate.page * paginate.limit, (paginate.page + 1) * paginate.limit) : utxos;
+      let selected = utxos;
       if (params?.amount) {
         let target;
         try { target = CSL.Value.from_hex(params.amount); } catch { throw { code: -1, info: "Invalid amount Value CBOR." }; }
@@ -226,9 +255,14 @@ export const walletCore = {
         for (const hex of selected) {
           sufficient.push(hex);
           total = total.checked_add(CSL.TransactionUnspentOutput.from_hex(hex).output().amount());
-          try { total.checked_sub(target); selected = sufficient; return selected; } catch {}
+          try { total.checked_sub(target); selected = sufficient; break; } catch {}
         }
-        return null;
+        try { total.checked_sub(target); } catch { return null; }
+      }
+      if (paginate) {
+        const start = paginate.page * paginate.limit;
+        if (start >= selected.length && selected.length > 0) throw { maxSize: Math.ceil(selected.length / paginate.limit) };
+        selected = selected.slice(start, start + paginate.limit);
       }
       return selected;
     }
@@ -237,14 +271,20 @@ export const walletCore = {
       for (const hex of await getUtxos(wallet)) total = total.checked_add(CSL.TransactionUnspentOutput.from_hex(hex).output().amount());
       return total.to_hex();
     }
-    if (method === "signTx") return transactionWitnesses(params.tx, params.partialSign === true, wallet);
+    if (method === "signTx") {
+      if (typeof params?.partialSign !== "undefined" && typeof params.partialSign !== "boolean") throw { code: -1, info: "partialSign must be a boolean." };
+      return transactionWitnesses(params.tx, params.partialSign === true, wallet);
+    }
     if (method === "signData") {
       let address = params.addr;
       try { address = CSL.Address.from_bech32(address).to_hex(); } catch {}
       const key = address === wallet.address.to_hex() ? wallet.payment : address === wallet.reward.to_hex() ? wallet.stake : null;
-      if (!key) throw new Error("Address does not belong to the configured wallet.");
+      if (!key) throw { code: 1, info: "Wallet cannot produce a signature for this address." };
       hexToBytes(params.payload);
       return coseSign(address, params.payload, key);
+    }
+    if (["cip95.getPubDRepKey", "cip95.getUnregisteredPubStakeKeys", "getRegisteredPubStakeKeys"].includes(method) && params !== undefined) {
+      throw { code: -1, info: `${method} does not accept arguments.` };
     }
     if (method === "cip95.getPubDRepKey") return bytesToHex(wallet.drep.to_public().as_bytes());
     if (method === "cip95.getUnregisteredPubStakeKeys") {
@@ -254,9 +294,9 @@ export const walletCore = {
       return await stakeRegistered(wallet) ? [bytesToHex(wallet.stake.to_public().as_bytes())] : [];
     }
     if (method === "cip95.signData") {
-      if (!cip95Enabled) throw new Error("CIP-95 is not enabled.");
+      if (!cip95Enabled) throw { code: -3, info: "CIP-95 is not enabled." };
       const drepId = bytesToHex(blake2b(wallet.drep.to_public().as_bytes(), { dkLen: 28 }));
-      if (params.addr !== drepId) throw new Error("DRep ID does not belong to the configured wallet.");
+      if (params.addr !== drepId) throw { code: 1, info: "Wallet cannot produce a signature for this DRep ID." };
       return coseSign(params.addr, params.payload, wallet.drep);
     }
     if (method === "submitTx") {
@@ -265,7 +305,7 @@ export const walletCore = {
         headers: { "content-type": "application/cbor" },
         body: hexToBytes(params.tx),
       });
-      if (!response.ok) throw new Error(`Preview submission returned ${response.status}: ${await response.text()}`);
+      if (!response.ok) throw { code: 2, info: `Preview submission returned ${response.status}: ${await response.text()}` };
       return (await response.json()).replace(/^"|"$/g, "");
     }
     throw new Error(`Unsupported wallet method: ${method}`);

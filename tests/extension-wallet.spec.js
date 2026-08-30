@@ -154,6 +154,35 @@ test("installed extension derives CIP-105 key and signs CIP-95 data", async () =
     expect(Buffer.from(blake2b(drepWitness.vkey().public_key().as_bytes(), { dkLen: 28 })).toString("hex")).toBe(drepId);
     expect(drepWitness.vkey().public_key().verify(CSL.FixedTransaction.from_hex(governanceTx).transaction_hash().to_bytes(), drepWitness.signature())).toBe(true);
 
+    const walletUtxos = await page.evaluate(() => window.proofWallet.getUtxos());
+    const ownedInput = CSL.TransactionUnspentOutput.from_hex(walletUtxos[0]).input();
+    const collateralInputs = CSL.TransactionInputs.new();
+    collateralInputs.add(ownedInput);
+    const collateralBody = CSL.TransactionBody.new(collateralInputs, outputs, CSL.BigNum.from_str("200000"));
+    collateralBody.set_collateral(collateralInputs);
+    const collateralTx = CSL.Transaction.new(collateralBody, CSL.TransactionWitnessSet.new()).to_hex();
+    const collateralPopupPromise = context.waitForEvent("page");
+    const collateralWitnessPromise = page.evaluate(tx => window.proofWallet.signTx(tx, true), collateralTx);
+    const collateralPopup = await collateralPopupPromise;
+    await collateralPopup.locator("#approve").click();
+    const collateralWitnessHex = await collateralWitnessPromise;
+    expect(CSL.TransactionWitnessSet.from_hex(collateralWitnessHex).vkeys().len()).toBe(1);
+
+    const witnessedTx = CSL.Transaction.new(collateralBody, CSL.TransactionWitnessSet.from_hex(collateralWitnessHex)).to_hex();
+    const existingPopupPromise = context.waitForEvent("page");
+    const existingPromise = page.evaluate(tx => window.proofWallet.signTx(tx, false), witnessedTx);
+    const existingPopup = await existingPopupPromise;
+    await existingPopup.locator("#approve").click();
+    expect(await existingPromise).toBe("a0");
+
+    const emptyBody = CSL.TransactionBody.new(inputs, outputs, CSL.BigNum.from_str("200000"));
+    const emptyTx = CSL.Transaction.new(emptyBody, CSL.TransactionWitnessSet.new()).to_hex();
+    const emptyPopupPromise = context.waitForEvent("page");
+    const emptyPromise = page.evaluate(tx => window.proofWallet.signTx(tx, true), emptyTx);
+    const emptyPopup = await emptyPopupPromise;
+    await emptyPopup.locator("#approve").click();
+    expect(await emptyPromise).toBe("a0");
+
     await setup.locator("#mnemonic").fill(entropyToMnemonic(new Uint8Array(16), wordlist));
     await setup.locator("#save").click();
     await expect(setup.locator("#mnemonic")).toHaveValue("");

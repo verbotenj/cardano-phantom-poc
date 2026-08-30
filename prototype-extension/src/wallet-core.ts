@@ -61,6 +61,8 @@ async function getUtxos(wallet: ReturnType<typeof derive>) {
   const outputsByHash = new Map(transactions.map((row: any) => {
     const transaction = cborDecoder.decode(hexToBytes(row.cbor));
     const body = transaction[0];
+    const computedHash = bytesToHex(blake2b(cborEncoder.encode(body), { dkLen: 32 }));
+    if (computedHash !== row.tx_hash) throw new Error(`Preview API returned mismatched transaction CBOR for ${row.tx_hash}.`);
     return [row.tx_hash, body instanceof Map ? body.get(1) : body[1]];
   }));
   return (rows ?? []).map((row: any) => {
@@ -144,17 +146,36 @@ async function transactionWitnesses(txHex: string, partialSign: boolean, wallet:
     const input = CSL.TransactionUnspentOutput.from_hex(hex).input();
     return `${input.transaction_id().to_hex()}#${input.index()}`;
   }));
+  const inputRef = (input: any) => `${input.transaction_id().to_hex()}#${input.index()}`;
   const inputs = body.inputs();
-  for (let index = 0; index < inputs.len(); index++) {
-    const input = inputs.get(index);
-    if (knownInputs.has(`${input.transaction_id().to_hex()}#${input.index()}`)) required.add(paymentHash);
-    else missing = true;
-  }
   const collateral = body.collateral();
+  const foreignRefs = [];
+  for (const collection of [inputs, collateral]) if (collection) for (let index = 0; index < collection.len(); index++) {
+    const ref = inputRef(collection.get(index));
+    if (!knownInputs.has(ref)) foreignRefs.push(ref);
+  }
+  const foreignRows = foreignRefs.length ? await koios("utxo_info", { _utxo_refs: foreignRefs, _extended: false }) : [];
+  const foreignByRef = new Map(foreignRows.map((row: any) => [`${row.tx_hash}#${row.tx_index}`, row]));
+  const requireInput = (input: any) => {
+    const ref = inputRef(input);
+    if (knownInputs.has(ref)) {
+      if (!existing.has(paymentHash)) required.add(paymentHash);
+      return;
+    }
+    const row = foreignByRef.get(ref);
+    if (!row) { missing = true; return; }
+    let address;
+    try { address = CSL.Address.from_bech32(row.address); } catch { missing = true; return; }
+    const credential = CSL.BaseAddress.from_address(address)?.payment_cred() || CSL.EnterpriseAddress.from_address(address)?.payment_cred() ||
+      CSL.PointerAddress.from_address(address)?.payment_cred() || CSL.ByronAddress.from_address(address);
+    const hash = credential?.to_keyhash?.()?.to_hex();
+    if (!hash || !existing.has(hash)) missing = true;
+  };
+  for (let index = 0; index < inputs.len(); index++) {
+    requireInput(inputs.get(index));
+  }
   if (collateral) for (let index = 0; index < collateral.len(); index++) {
-    const input = collateral.get(index);
-    if (knownInputs.has(`${input.transaction_id().to_hex()}#${input.index()}`)) required.add(paymentHash);
-    else missing = true;
+    requireInput(collateral.get(index));
   }
 
   const certs = body.certs();
@@ -174,7 +195,7 @@ async function transactionWitnesses(txHex: string, partialSign: boolean, wallet:
         cert.as_vote_registration_and_delegation() || cert.as_stake_vote_registration_and_delegation();
       hash = stakeCert && credentialHash(stakeCert.stake_credential());
     }
-    if (hash && keys.has(hash)) required.add(hash);
+    if (hash && keys.has(hash) && !existing.has(hash)) required.add(hash);
     else if (hash && !existing.has(hash)) missing = true;
     else if (!hash || [CSL.CertificateKind.PoolRegistration, CSL.CertificateKind.PoolRetirement, CSL.CertificateKind.CommitteeHotAuth, CSL.CertificateKind.CommitteeColdResign].includes(kind)) missing = true;
   }
@@ -182,7 +203,7 @@ async function transactionWitnesses(txHex: string, partialSign: boolean, wallet:
   const explicit = body.required_signers();
   if (explicit) for (let index = 0; index < explicit.len(); index++) {
     const hash = explicit.get(index).to_hex();
-    if (keys.has(hash)) required.add(hash);
+    if (keys.has(hash) && !existing.has(hash)) required.add(hash);
     else if (!existing.has(hash)) missing = true;
   }
   const withdrawals = body.withdrawals();
@@ -190,8 +211,8 @@ async function transactionWitnesses(txHex: string, partialSign: boolean, wallet:
     const rewards = withdrawals.keys();
     for (let index = 0; index < rewards.len(); index++) {
       const hash = credentialHash(rewards.get(index).payment_cred());
-      if (hash === stakeHash) required.add(stakeHash);
-      else missing = true;
+      if (hash === stakeHash && !existing.has(stakeHash)) required.add(stakeHash);
+      else if (hash !== stakeHash && !existing.has(hash)) missing = true;
     }
   }
   const voting = body.voting_procedures();
@@ -201,8 +222,8 @@ async function transactionWitnesses(txHex: string, partialSign: boolean, wallet:
       const voter = voters.get(index);
       if (voter.kind() === CSL.VoterKind.DRepKeyHash) {
         const hash = credentialHash(voter.to_drep_credential());
-        if (hash === drepHash) required.add(drepHash);
-        else missing = true;
+        if (hash === drepHash && !existing.has(drepHash)) required.add(drepHash);
+        else if (hash !== drepHash && !existing.has(hash)) missing = true;
       } else {
         missing = true;
       }

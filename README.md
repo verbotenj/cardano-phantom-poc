@@ -6,6 +6,7 @@ The fork adds an experimental client-side **CIP-30 `CardanoProvider`** and negot
 
 * 👉 **Read the Detailed [Architectural Gap Analysis & CIP-30 Integration Details](proofs/GAP_ANALYSIS.md)**
 * 👉 **Audit the [CIP-95 and CIP-105 Preview proof](proofs/CIP95_execution_logs.md)**
+* 👉 **Audit the [installed-extension CIP-30/CIP-95 Preview execution](proofs/EXTENSION_PREVIEW_EXECUTION.md)**
 * 👉 **View the Custom SDK Fork on GitHub: [verbotenj/phantom-connect-sdk](https://github.com/verbotenj/phantom-connect-sdk)** *(Developer Note: this experimental, unmaintained fork implements and tests the dApp-facing provider contract. Complete compliance also depends on wallet-side behavior that is outside the SDK facade.)*
 
 Supported and powered by **[Demeter.run](https://demeter.run/)** (run jointly by **[TxPipe](https://txpipe.io/)** and **[Blink Labs](https://blinklabs.io/)**, two independent engineering teams you already know from the Cardano ecosystem), providing world-class, production-grade cloud infrastructure, Node hosting, and Blockfrost API Gateways for the Cardano developer ecosystem.

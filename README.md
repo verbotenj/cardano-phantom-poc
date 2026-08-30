@@ -1,8 +1,8 @@
 # Cardano Phantom Wallet Integration & E2E programmatic POC
 
-This repository contains the official, fully-functional Proof of Concept (POC) demonstrating native **Cardano (ADA) wallet support** integrated within the Phantom ecosystem.
+This repository contains an independent, unofficial proof of concept for adding **Cardano (ADA) wallet support** to a fork of Phantom's open-source SDK. It is not affiliated with Phantom and does not demonstrate support in Phantom's released extension.
 
-**🚨 THE PRODUCT GAP RESOLVED:** Originally, the official `phantom-connect-sdk` only provided wallet integration providers for Solana and EVM (Ethereum), with **0% Cardano support**. This POC resolves this gap by designing and integrating a complete, compliant client-side **CIP-30 `CardanoProvider` class** directly into the SDK, allowing any Cardano Web3 dApp to seamlessly connect and authorize transactions.
+The fork adds an experimental client-side **CIP-30 `CardanoProvider`** and negotiated CIP-95 surface. The provider is useful integration code, but wallet behavior still requires a compatible extension-side responder, approval UI, key management, transaction inspection, and signer.
 
 * 👉 **Read the Detailed [Architectural Gap Analysis & CIP-30 Integration Details](proofs/GAP_ANALYSIS.md)**
 * 👉 **Audit the [CIP-95 and CIP-105 Preview proof](proofs/CIP95_execution_logs.md)**
@@ -65,13 +65,13 @@ Your root directory contains **two completely independent execution layers**. Th
 
 #### 🔗 Track B: `run_phantom_sdk_tests.sh` (The Actual Phantom SDK Integration)
 
-* **Actual Execution:** This is the actual, genuine Phantom Wallet integration proof! It runs `test_sdk_integration.ts` under a simulated Chrome browser window.
+* **Actual Execution:** Runs `test_sdk_integration.ts` under a simulated browser environment to exercise the forked SDK provider against a local responder.
 * **How it uses Phantom:**
   1. It programmatically imports, instantiates, and executes the actual, raw `CardanoProvider` class directly from your `phantom-connect-sdk` packages (`forks/phantom-connect-sdk/packages/browser-injected-sdk/src/cardano/provider.ts`).
   2. It simulates a webpage dApp triggering standard CIP-30 handshakes (like `.enable()`, `.getUsedAddresses()`, `.getUtxos()`, `.signTx()`, and `.submitTx()`) on the provider.
   3. Your actual SDK provider code naturally communicates using browser IPC (`window.postMessage`). We intercept these messages, sign them cryptographically, and dispatch browser `MessageEvent` objects back to the provider.
 
-  This proves that the actual `phantom-connect-sdk` code you wrote is 100% functional, Standard-compliant, and fully ready to be loaded by the Phantom Extension!
+  This proves that the forked provider can exchange CIP-30-shaped requests with the POC responder. It does not establish complete CIP compliance or compatibility with Phantom's released extension.
 
   *How to Run:* `./scripts/run_phantom_sdk_tests.sh`
   *View Verified Settlement Logs:* [proofs/SDK_execution_logs.md](proofs/SDK_execution_logs.md)
@@ -81,7 +81,7 @@ Your root directory contains **two completely independent execution layers**. Th
 #### 🎯 Summary
 
 * **`run_phantom_cli_tests.sh`** *(scripts/run_phantom_cli_tests.sh)*: Verifies the mathematics & ledger connection (Independent of Phantom).
-* **`run_phantom_sdk_tests.sh`** *(scripts/run_phantom_sdk_tests.sh)*: Verifies the actual Phantom SDK & CIP-30 provider code (Direct Phantom integration).
+* **`run_phantom_sdk_tests.sh`** *(scripts/run_phantom_sdk_tests.sh)*: Verifies the forked SDK provider against the simulated local responder.
 * **`npm run test:cip95`**: Rechecks CIP-105 DRep derivation, CIP-95 COSE signing, and the confirmed Preview transaction without spending more tADA.
 
 ---
@@ -254,7 +254,7 @@ This ensures:
    on the Node.js `global` scope, we intercept these messages, relay them to the
    gateway proxy (which handles the on-chain cryptographic signatures), and
    dispatch standard browser `MessageEvent` objects back to the provider,
-   perfectly simulating a real browser window execution with **zero mocks and
+   simulating a browser window and message bridge with explicit mocks and
    zero heavy display overhead!**
 ```
 

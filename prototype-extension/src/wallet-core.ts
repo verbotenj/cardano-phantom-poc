@@ -1,10 +1,12 @@
 import * as CSL from "@emurgo/cardano-serialization-lib-asmjs";
 import { mnemonicToEntropy, validateMnemonic } from "@scure/bip39";
 import { wordlist } from "@scure/bip39/wordlists/english";
-import { encode } from "cbor-x";
+import { Decoder, Encoder } from "cbor-x";
 import { blake2b } from "@noble/hashes/blake2b";
 
 const harden = (value: number) => 0x80000000 + value;
+const cborDecoder = new Decoder({ mapsAsObjects: false });
+const cborEncoder = new Encoder({ useRecords: false, tagUint8Array: false, useTag259ForMaps: false });
 
 function derive(mnemonic: string) {
   if (!validateMnemonic(mnemonic, wordlist)) throw new Error("Invalid Preview wallet mnemonic.");
@@ -32,12 +34,12 @@ const hexToBytes = (hex: string) => {
 };
 
 function coseSign(addressHex: string, payloadHex: string, key: any) {
-  const protectedBytes = encode(new Map([[1, -8], ["address", hexToBytes(addressHex)]]));
+  const protectedBytes = cborEncoder.encode(new Map([[1, -8], ["address", hexToBytes(addressHex)]]));
   const payload = hexToBytes(payloadHex);
-  const sigStructure = encode(["Signature1", protectedBytes, new Uint8Array(), payload]);
+  const sigStructure = cborEncoder.encode(["Signature1", protectedBytes, new Uint8Array(), payload]);
   const signature = key.sign(sigStructure).to_bytes();
-  const sign1 = encode([protectedBytes, { hashed: false }, payload, signature]);
-  const coseKey = encode(new Map([[1, 1], [3, -8], [-1, 6], [-2, key.to_public().as_bytes()]]));
+  const sign1 = cborEncoder.encode([protectedBytes, { hashed: false }, payload, signature]);
+  const coseKey = cborEncoder.encode(new Map([[1, 1], [3, -8], [-1, 6], [-2, key.to_public().as_bytes()]]));
   return { signature: bytesToHex(sign1), key: bytesToHex(coseKey) };
 }
 
@@ -54,23 +56,17 @@ async function koios(path: string, body: object) {
 
 async function getUtxos(wallet: ReturnType<typeof derive>) {
   const rows = await koios("address_utxos", { _addresses: [wallet.address.to_bech32()], _extended: true });
+  const hashes = [...new Set((rows ?? []).map((row: any) => row.tx_hash))];
+  const transactions = hashes.length ? await koios("tx_cbor", { _tx_hashes: hashes }) : [];
+  const outputsByHash = new Map(transactions.map((row: any) => {
+    const transaction = cborDecoder.decode(hexToBytes(row.cbor));
+    const body = transaction[0];
+    return [row.tx_hash, body instanceof Map ? body.get(1) : body[1]];
+  }));
   return (rows ?? []).map((row: any) => {
-    const input = CSL.TransactionInput.new(CSL.TransactionHash.from_hex(row.tx_hash), row.tx_index);
-    const value = CSL.Value.new(CSL.BigNum.from_str(row.value));
-    if (row.asset_list?.length) {
-      const multiAsset = CSL.MultiAsset.new();
-      const policies = new Map<string, any>();
-      for (const asset of row.asset_list) {
-        const assets = policies.get(asset.policy_id) || CSL.Assets.new();
-        assets.insert(CSL.AssetName.new(hexToBytes(asset.asset_name)), CSL.BigNum.from_str(asset.quantity));
-        policies.set(asset.policy_id, assets);
-      }
-      for (const [policy, assets] of policies) multiAsset.insert(CSL.ScriptHash.from_hex(policy), assets);
-      value.set_multiasset(multiAsset);
-    }
-    const output = CSL.TransactionOutput.new(CSL.Address.from_bech32(row.address), value);
-    if (row.datum_hash) output.set_data_hash(CSL.DataHash.from_hex(row.datum_hash));
-    return CSL.TransactionUnspentOutput.new(input, output).to_hex();
+    const outputs = outputsByHash.get(row.tx_hash);
+    if (!outputs || row.tx_index >= outputs.length) throw new Error(`Preview API omitted transaction output ${row.tx_hash}#${row.tx_index}.`);
+    return bytesToHex(cborEncoder.encode([[hexToBytes(row.tx_hash), row.tx_index], outputs[row.tx_index]]));
   });
 }
 
@@ -92,6 +88,7 @@ function witnessSet(txHex: string, keys: any[]) {
 const credentialHash = (credential: any) => credential?.to_keyhash()?.to_hex();
 
 async function transactionWitnesses(txHex: string, partialSign: boolean, wallet: ReturnType<typeof derive>) {
+  const walletUtxos = await getUtxos(wallet);
   let transaction;
   try {
     transaction = CSL.FixedTransaction.from_hex(txHex);
@@ -111,7 +108,7 @@ async function transactionWitnesses(txHex: string, partialSign: boolean, wallet:
     existing.add(existingVkeys.get(index).vkey().public_key().hash().to_hex());
   }
 
-  const knownInputs = new Set((await getUtxos(wallet)).map(hex => {
+  const knownInputs = new Set(walletUtxos.map(hex => {
     const input = CSL.TransactionUnspentOutput.from_hex(hex).input();
     return `${input.transaction_id().to_hex()}#${input.index()}`;
   }));

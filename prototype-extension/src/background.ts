@@ -157,7 +157,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       return result(await walletCore.call(message.method, message.params, stored.prototypeWallet, cip95Enabled));
     } catch (cause) {
-      return cause?.code ? { error: cause } : error(-2, cause.message || String(cause));
+      return cause?.code ? { error: cause } : error(-2, cause?.message || String(cause));
     }
   };
   respond().then(sendResponse, cause => sendResponse(error(-2, cause?.message || String(cause))));

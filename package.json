@@ -5,11 +5,14 @@
   "main": "e2e_wallet_proof.js",
   "scripts": {
     "test:cli": "./scripts/run_phantom_cli_tests.sh",
-    "test:sdk": "./scripts/run_phantom_sdk_tests.sh"
+    "test:sdk": "./scripts/run_phantom_sdk_tests.sh",
+    "test:cip95": "node proofs/verify_cip95_preview.js"
   },
   "dependencies": {
     "@dcspark/cardano-multiplatform-lib-nodejs": "^6.2.0",
     "@lucid-evolution/lucid": "^0.6.2",
+    "@lucid-evolution/sign_data": "^0.1.31",
+    "@noble/hashes": "^1.8.0",
     "@playwright/test": "^1.62.1",
     "axios": "^1.19.0",
     "bip39": "^3.1.0",

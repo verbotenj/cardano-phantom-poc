@@ -6,7 +6,9 @@
   "scripts": {
     "test:cli": "./scripts/run_phantom_cli_tests.sh",
     "test:sdk": "./scripts/run_phantom_sdk_tests.sh",
-    "test:cip95": "node proofs/verify_cip95_preview.js"
+    "test:cip95": "node proofs/verify_cip95_preview.js",
+    "build:extension": "node scripts/build_prototype_extension.mjs",
+    "test:extension-shell": "npm run build:extension && playwright test tests/extension-shell.spec.js"
   },
   "dependencies": {
     "@dcspark/cardano-multiplatform-lib-nodejs": "^6.2.0",
@@ -20,5 +22,8 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "http-proxy-middleware": "^4.2.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.9"
   }
 }

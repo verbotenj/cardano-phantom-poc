@@ -1,0 +1,11 @@
+:root { color-scheme: dark; font: 16px/1.45 system-ui, sans-serif; }
+body { margin: 0; background: #13111c; color: #f6f3ff; }
+main { padding: 28px; }
+.label { color: #ab8cff; font-size: 12px; font-weight: 800; letter-spacing: .12em; }
+h1 { margin: 12px 0; font-size: 28px; }
+#origin { overflow-wrap: anywhere; color: #c8bddf; }
+section, .warning { margin: 24px 0; padding: 16px; border: 1px solid #403653; border-radius: 12px; }
+.warning { color: #ffd28a; }
+.actions { display: flex; gap: 12px; justify-content: flex-end; }
+button { padding: 11px 18px; border: 1px solid #5b4d72; border-radius: 9px; background: transparent; color: inherit; font-weight: 700; }
+.primary { border-color: #8d65ff; background: #7c4dff; }

@@ -9,3 +9,5 @@ section, .warning { margin: 24px 0; padding: 16px; border: 1px solid #403653; bo
 .actions { display: flex; gap: 12px; justify-content: flex-end; }
 button { padding: 11px 18px; border: 1px solid #5b4d72; border-radius: 9px; background: transparent; color: inherit; font-weight: 700; }
 .primary { border-color: #8d65ff; background: #7c4dff; }
+label { display: grid; gap: 8px; margin: 18px 0; }
+textarea, input { padding: 10px; border: 1px solid #5b4d72; border-radius: 8px; background: #211b2e; color: inherit; }

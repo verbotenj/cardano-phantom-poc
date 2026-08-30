@@ -1,6 +1,5 @@
 # Git ignore rules for Cardano Phantom POC Workspace
 node_modules/
-forks/
 data/
 dist/
 test-results/

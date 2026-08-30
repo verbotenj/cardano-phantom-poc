@@ -2,9 +2,12 @@ const http = require("http");
 const path = require("path");
 const { chromium, expect, test } = require("@playwright/test");
 
-test("installed extension injects and approves negotiated CIP-95", async () => {
+test("installed extension injects an origin-approved base bridge", async () => {
   const server = http.createServer((request, response) => {
-    response.writeHead(200, { "content-type": "text/html" });
+    response.writeHead(200, {
+      "content-type": "text/html",
+      "content-security-policy": "default-src 'none'; style-src 'none'; script-src 'none'",
+    });
     response.end("<!doctype html><title>Extension proof</title><h1>Extension proof</h1>");
   });
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -28,7 +31,7 @@ test("installed extension injects and approves negotiated CIP-95", async () => {
         supportedExtensions: provider.supportedExtensions,
       };
     });
-    expect(metadata).toEqual({ name: "Phantom", apiVersion: "1", supportedExtensions: [{ cip: 95 }] });
+    expect(metadata).toEqual({ name: "Cardano Prototype (Unofficial)", apiVersion: "1", supportedExtensions: [] });
     await expect(page.evaluate(() => window.cardano.phantomPrototype.isEnabled())).resolves.toBe(false);
 
     const approvalPromise = context.waitForEvent("page");
@@ -42,10 +45,11 @@ test("installed extension injects and approves negotiated CIP-95", async () => {
     await approval.waitForLoadState();
     await expect(approval.locator("h1")).toHaveText("Connect Cardano wallet?");
     await expect(approval.locator("#origin")).toHaveText(`http://127.0.0.1:${port}`);
-    await expect(approval.locator("#extensions")).toHaveText("CIP-95");
+    await expect(approval.locator("#extensions")).toHaveText("None");
     await approval.locator("#approve").click();
-    await expect(enablePromise).resolves.toEqual({ extensions: [{ cip: 95 }], cip95: true });
+    await expect(enablePromise).resolves.toEqual({ extensions: [], cip95: false });
     await expect(page.evaluate(() => window.cardano.phantomPrototype.isEnabled())).resolves.toBe(true);
+    await expect(page.evaluate(() => window.cardano.phantomPrototype.enable().then(api => Boolean(api.cip95)))).resolves.toBe(false);
 
     await page.goto(`http://localhost:${port}`);
     await page.waitForFunction(() => window.cardano?.phantomPrototype);

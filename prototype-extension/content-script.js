@@ -1,8 +1,3 @@
-const injected = document.createElement("script");
-injected.src = chrome.runtime.getURL("injected.js");
-injected.onload = () => injected.remove();
-(document.head || document.documentElement).appendChild(injected);
-
 window.addEventListener("message", event => {
   const request = event.data;
   if (

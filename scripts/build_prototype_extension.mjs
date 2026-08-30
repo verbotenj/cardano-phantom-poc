@@ -7,6 +7,7 @@ const source = path.join(root, "prototype-extension");
 const output = path.join(root, "dist", "prototype-extension");
 const sdkRoot = process.env.PHANTOM_SDK_PATH || path.join(root, "forks", "phantom-connect-sdk");
 const provider = path.join(sdkRoot, "packages", "browser-injected-sdk", "src", "cardano", "provider.ts");
+const constants = path.join(sdkRoot, "packages", "constants", "src", "icons.ts");
 
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
@@ -25,6 +26,7 @@ await build({
     name: "cardano-provider",
     setup(buildApi) {
       buildApi.onResolve({ filter: /^@prototype\/cardano-provider$/ }, () => ({ path: provider }));
+      buildApi.onResolve({ filter: /^@phantom\/constants$/ }, () => ({ path: constants }));
     },
   }],
 });

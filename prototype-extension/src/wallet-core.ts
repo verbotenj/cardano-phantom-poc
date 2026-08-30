@@ -139,7 +139,9 @@ async function transactionWitnesses(txHex: string, partialSign: boolean, wallet:
   const existing = new Set<string>();
   const existingVkeys = transaction.witness_set()?.vkeys?.();
   if (existingVkeys) for (let index = 0; index < existingVkeys.len(); index++) {
-    existing.add(existingVkeys.get(index).vkey().public_key().hash().to_hex());
+    const witness = existingVkeys.get(index);
+    const publicKey = witness.vkey().public_key();
+    if (publicKey.verify(transaction.transaction_hash().to_bytes(), witness.signature())) existing.add(publicKey.hash().to_hex());
   }
 
   const knownInputs = new Set(walletUtxos.map(hex => {

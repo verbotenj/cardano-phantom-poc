@@ -175,6 +175,22 @@ test("installed extension derives CIP-105 key and signs CIP-95 data", async () =
     await existingPopup.locator("#approve").click();
     expect(await existingPromise).toBe("a0");
 
+    const validWitness = CSL.TransactionWitnessSet.from_hex(collateralWitnessHex).vkeys().get(0);
+    const signatureBytes = validWitness.signature().to_bytes();
+    signatureBytes[0] ^= 1;
+    const forgedList = CSL.Vkeywitnesses.new();
+    forgedList.add(CSL.Vkeywitness.new(validWitness.vkey(), CSL.Ed25519Signature.from_bytes(signatureBytes)));
+    const forgedSet = CSL.TransactionWitnessSet.new();
+    forgedSet.set_vkeys(forgedList);
+    const forgedTx = CSL.Transaction.new(collateralBody, forgedSet).to_hex();
+    const replacementPopupPromise = context.waitForEvent("page");
+    const replacementPromise = page.evaluate(tx => window.proofWallet.signTx(tx, false), forgedTx);
+    const replacementPopup = await replacementPopupPromise;
+    await replacementPopup.locator("#approve").click();
+    const replacement = CSL.TransactionWitnessSet.from_hex(await replacementPromise).vkeys();
+    expect(replacement.len()).toBe(1);
+    expect(replacement.get(0).vkey().public_key().verify(CSL.FixedTransaction.from_hex(forgedTx).transaction_hash().to_bytes(), replacement.get(0).signature())).toBe(true);
+
     const emptyBody = CSL.TransactionBody.new(inputs, outputs, CSL.BigNum.from_str("200000"));
     const emptyTx = CSL.Transaction.new(emptyBody, CSL.TransactionWitnessSet.new()).to_hex();
     const emptyPopupPromise = context.waitForEvent("page");

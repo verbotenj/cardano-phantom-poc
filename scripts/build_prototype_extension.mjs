@@ -11,7 +11,7 @@ const constants = path.join(sdkRoot, "packages", "constants", "src", "icons.ts")
 
 await rm(output, { recursive: true, force: true });
 await mkdir(output, { recursive: true });
-for (const file of ["manifest.json", "content-script.js", "background.js", "approval.html", "approval.js", "approval.css"]) {
+for (const file of ["manifest.json", "content-script.js", "approval.html", "approval.js", "approval.css", "setup.html", "setup.js"]) {
   await cp(path.join(source, file), path.join(output, file));
 }
 
@@ -29,6 +29,15 @@ await build({
       buildApi.onResolve({ filter: /^@phantom\/constants$/ }, () => ({ path: constants }));
     },
   }],
+});
+
+await build({
+  entryPoints: [path.join(source, "src", "background.ts")],
+  outfile: path.join(output, "background.js"),
+  bundle: true,
+  format: "esm",
+  platform: "browser",
+  target: "chrome120",
 });
 
 console.log(`Built prototype extension at ${output}`);

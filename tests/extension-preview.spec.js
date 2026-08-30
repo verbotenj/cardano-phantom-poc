@@ -1,12 +1,9 @@
 const fs = require("fs");
 const http = require("http");
 const path = require("path");
-const { blake2b } = require("@noble/hashes/blake2b");
 const { chromium, expect, test } = require("@playwright/test");
 const CSL = require("@emurgo/cardano-serialization-lib-asmjs");
 require("dotenv").config({ path: ".env.development", quiet: true });
-
-const hex = bytes => Buffer.from(bytes).toString("hex");
 
 test("installed extension signs and submits a CIP-95 Preview transaction", async () => {
   test.setTimeout(180_000);
@@ -73,16 +70,21 @@ test("installed extension signs and submits a CIP-95 Preview transaction", async
     expect(witnesses.vkeys().len()).toBe(2);
 
     const bodyHash = CSL.FixedTransaction.from_hex(unsigned).transaction_hash();
+    const paymentCredential = CSL.BaseAddress.from_address(selected.output().address())?.payment_cred() ||
+      CSL.EnterpriseAddress.from_address(selected.output().address())?.payment_cred() ||
+      CSL.PointerAddress.from_address(selected.output().address())?.payment_cred();
+    const paymentHash = paymentCredential?.to_keyhash()?.to_hex();
+    expect(paymentHash).toBeTruthy();
     const verified = [];
     for (let index = 0; index < witnesses.vkeys().len(); index++) {
       const witness = witnesses.vkeys().get(index);
       expect(witness.vkey().public_key().verify(bodyHash.to_bytes(), witness.signature())).toBe(true);
-      verified.push({
-        role: hex(blake2b(witness.vkey().public_key().as_bytes(), { dkLen: 28 })) === process.env.CARDANO_DREP_ID_1 ? "drep" : "payment",
-        keyHash: witness.vkey().public_key().hash().to_hex(),
-        drepHash: hex(blake2b(witness.vkey().public_key().as_bytes(), { dkLen: 28 })),
-      });
+      const keyHash = witness.vkey().public_key().hash().to_hex();
+      const role = keyHash === process.env.CARDANO_DREP_ID_1 ? "drep" : keyHash === paymentHash ? "payment" : null;
+      expect(role).not.toBeNull();
+      verified.push({ role, keyHash });
     }
+    expect(verified.map(item => item.keyHash).sort()).toEqual([paymentHash, process.env.CARDANO_DREP_ID_1].sort());
 
     const signed = CSL.Transaction.new(body, witnesses).to_hex();
     const txHash = await page.evaluate(tx => window.previewWallet.submitTx(tx), signed);

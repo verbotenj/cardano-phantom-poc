@@ -13,13 +13,11 @@
   "verifiedWitnesses": [
     {
       "role": "payment",
-      "keyHash": "b957695d2eb0b466001b880b20bb82aa18b32b7701a901c9020ad7e4",
-      "drepHash": "b957695d2eb0b466001b880b20bb82aa18b32b7701a901c9020ad7e4"
+      "keyHash": "b957695d2eb0b466001b880b20bb82aa18b32b7701a901c9020ad7e4"
     },
     {
       "role": "drep",
-      "keyHash": "7fd1d20a835f94982a1dddbcad86994b2d615195f159aac28ad806b2",
-      "drepHash": "7fd1d20a835f94982a1dddbcad86994b2d615195f159aac28ad806b2"
+      "keyHash": "7fd1d20a835f94982a1dddbcad86994b2d615195f159aac28ad806b2"
     }
   ],
   "confirmationsAtCapture": 1

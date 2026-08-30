@@ -1,5 +1,13 @@
 const query = new URLSearchParams(location.search);
 const approvalId = query.get("approvalId");
+const kind = query.get("kind") || "connect";
+const titles = {
+  connect: "Connect Cardano wallet?",
+  signTx: "Sign Cardano transaction?",
+  signData: "Sign Cardano data?",
+  "cip95.signData": "Sign with DRep key?",
+};
+document.querySelector("h1").textContent = titles[kind] || "Approve Cardano request?";
 document.querySelector("#origin").textContent = query.get("origin") || "Unknown origin";
 const extensions = JSON.parse(query.get("extensions") || "[]");
 document.querySelector("#extensions").textContent = extensions.length ? extensions.map(item => `CIP-${item.cip}`).join(", ") : "None";

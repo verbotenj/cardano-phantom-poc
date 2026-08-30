@@ -1,3 +1,5 @@
+import { walletCore } from "./wallet-core";
+
 const pendingApprovals = new Map();
 const approvalsByOrigin = new Map();
 const APPROVAL_TIMEOUT_MS = 30_000;
@@ -16,8 +18,9 @@ async function enabledExtensions(origin) {
   return stored[connectionKey(origin)]?.extensions ?? [];
 }
 
-function requestApproval(origin, extensions) {
-  if (approvalsByOrigin.has(origin)) return approvalsByOrigin.get(origin);
+function requestApproval(origin, extensions, kind = "connect") {
+  const approvalKey = `${origin}:${kind}`;
+  if (approvalsByOrigin.has(approvalKey)) return approvalsByOrigin.get(approvalKey);
   const approvalId = crypto.randomUUID();
   let resolveDecision;
   const decision = new Promise(resolve => { resolveDecision = resolve; });
@@ -26,14 +29,14 @@ function requestApproval(origin, extensions) {
     if (!pendingApprovals.has(approvalId)) return;
     clearTimeout(pending.timer);
     pendingApprovals.delete(approvalId);
-    approvalsByOrigin.delete(origin);
+    approvalsByOrigin.delete(approvalKey);
     resolveDecision(approved);
   };
   pending.timer = setTimeout(() => pending.finish(false), APPROVAL_TIMEOUT_MS);
   pendingApprovals.set(approvalId, pending);
-  approvalsByOrigin.set(origin, decision);
+  approvalsByOrigin.set(approvalKey, decision);
 
-  const query = new URLSearchParams({ approvalId, origin, extensions: JSON.stringify(extensions) });
+  const query = new URLSearchParams({ approvalId, origin, extensions: JSON.stringify(extensions), kind });
   chrome.windows.create({
       url: chrome.runtime.getURL(`approval.html?${query}`),
       type: "popup",
@@ -75,6 +78,16 @@ function validBridgeRequest(message, sender) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "configure-wallet") {
+    try {
+      const inspected = walletCore.inspect(message.mnemonic);
+      chrome.storage.local.set({ prototypeWallet: { mnemonic: message.mnemonic } })
+        .then(() => sendResponse(result(inspected)), cause => sendResponse(error(-2, cause.message)));
+    } catch (cause) {
+      sendResponse(error(-1, cause.message));
+    }
+    return true;
+  }
   if (message?.type === "approval-decision") {
     const pending = pendingApprovals.get(message.approvalId);
     pending?.finish(message.approved === true);
@@ -89,7 +102,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.method === "enable") {
       const requested = message.params?.extensions ?? [];
       if (!validExtensions(requested)) return error(-1, "Invalid extensions request.");
-      const extensions = [];
+      const extensions = requested.filter(item => item.cip === 95);
       const existing = await enabledExtensions(origin);
       if (await isConnected(origin) && extensions.every(item => existing.some(enabled => enabled.cip === item.cip))) {
         return result({ enabled: true, extensions: existing });
@@ -100,7 +113,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     if (!(await isConnected(origin))) return error(-3, "Origin is not connected.");
     if (message.method === "getExtensions") return result(await enabledExtensions(origin));
-    return error(-2, `Prototype method is not implemented yet: ${message.method}`);
+    const stored = await chrome.storage.local.get("prototypeWallet");
+    if (!stored.prototypeWallet) return error(-2, "Preview wallet is not configured.");
+    const extensions = await enabledExtensions(origin);
+    const cip95Enabled = extensions.some(item => item.cip === 95);
+    if (message.method.startsWith("cip95.") && !cip95Enabled) return error(-3, "CIP-95 is not enabled.");
+    if (["signTx", "signData", "cip95.signData"].includes(message.method)) {
+      if (!(await requestApproval(origin, [], message.method))) return error(message.method === "signTx" ? 2 : 3, "User declined signing.");
+    }
+    try {
+      return result(await walletCore.call(message.method, message.params, stored.prototypeWallet, cip95Enabled));
+    } catch (cause) {
+      return error(-2, cause.message || String(cause));
+    }
   };
   respond().then(sendResponse, cause => sendResponse(error(-2, cause?.message || String(cause))));
   return true;

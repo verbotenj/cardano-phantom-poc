@@ -11,6 +11,11 @@ document.querySelector("h1").textContent = titles[kind] || "Approve Cardano requ
 document.querySelector("#origin").textContent = query.get("origin") || "Unknown origin";
 const extensions = JSON.parse(query.get("extensions") || "[]");
 document.querySelector("#extensions").textContent = extensions.length ? extensions.map(item => `CIP-${item.cip}`).join(", ") : "None";
+const details = query.get("details");
+if (details) {
+  document.querySelector("#signing-details").hidden = false;
+  document.querySelector("#details").textContent = details;
+}
 
 async function decide(approved) {
   await chrome.runtime.sendMessage({ type: "approval-decision", approvalId, approved });

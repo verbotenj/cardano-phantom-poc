@@ -4,4 +4,5 @@ document.querySelector("#save").addEventListener("click", async () => {
     mnemonic: document.querySelector("#mnemonic").value.trim(),
   });
   document.querySelector("#result").textContent = response?.error?.info || `Configured ${response.result.address}`;
+  document.querySelector("#mnemonic").value = "";
 });

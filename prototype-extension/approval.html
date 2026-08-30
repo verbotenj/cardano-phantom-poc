@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Cardano connection request</title>
+    <link rel="stylesheet" href="approval.css">
+  </head>
+  <body>
+    <main>
+      <p class="label">DEVELOPMENT PROTOTYPE</p>
+      <h1>Connect Cardano wallet?</h1>
+      <p id="origin"></p>
+      <p>This test site is requesting access to the CIP-30 wallet API.</p>
+      <section>
+        <strong>Requested extensions</strong>
+        <p id="extensions">None</p>
+      </section>
+      <p class="warning">Not affiliated with Phantom. Use Preview test funds only.</p>
+      <div class="actions">
+        <button id="reject" type="button">Reject</button>
+        <button id="approve" class="primary" type="button">Connect</button>
+      </div>
+    </main>
+    <script src="approval.js"></script>
+  </body>
+</html>

@@ -12,11 +12,18 @@ document.querySelector("#approve").textContent = kind === "connect" ? "Connect" 
 document.querySelector("#origin").textContent = query.get("origin") || "Unknown origin";
 const extensions = JSON.parse(query.get("extensions") || "[]");
 document.querySelector("#extensions").textContent = extensions.length ? extensions.map(item => `CIP-${item.cip}`).join(", ") : "None";
-if (kind !== "connect") chrome.runtime.sendMessage({ type: "approval-details", approvalId }).then(response => {
-  if (!response?.result) return;
-  document.querySelector("#signing-details").hidden = false;
-  document.querySelector("#details").textContent = response.result;
-});
+if (kind !== "connect") {
+  document.querySelector("#approve").disabled = true;
+  chrome.runtime.sendMessage({ type: "approval-details", approvalId }).then(response => {
+    document.querySelector("#signing-details").hidden = false;
+    if (!response?.result) {
+      document.querySelector("#details").textContent = response?.error?.info || "Signing details could not be loaded.";
+      return;
+    }
+    document.querySelector("#details").textContent = response.result;
+    document.querySelector("#approve").disabled = false;
+  });
+}
 
 async function decide(approved) {
   await chrome.runtime.sendMessage({ type: "approval-decision", approvalId, approved });

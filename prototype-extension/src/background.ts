@@ -148,16 +148,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (["signTx", "signData", "cip95.signData"].includes(message.method)) {
       let details;
       try {
-        details = walletCore.inspectRequest(message.method, message.params, stored.prototypeWallet);
+        details = walletCore.inspectRequest(message.method, message.params, stored.prototypeWallet, cip95Enabled);
       } catch (cause) {
         return cause?.code ? { error: cause } : error(-1, cause.message || String(cause));
       }
       if (!(await requestApproval(origin, [], message.method, details))) return error(message.method === "signTx" ? 2 : 3, "User declined signing.");
+      const current = await chrome.storage.local.get([connectionKey(origin), "accountGeneration", "prototypeWallet"]);
+      if (current.accountGeneration !== generation || current[connectionKey(origin)]?.generation !== generation) {
+        return error(-4, "Wallet account changed; enable the connection again.");
+      }
+      stored.prototypeWallet = current.prototypeWallet;
     }
     try {
       return result(await walletCore.call(message.method, message.params, stored.prototypeWallet, cip95Enabled));
     } catch (cause) {
-      return cause?.code ? { error: cause } : error(-2, cause?.message || String(cause));
+      if (cause?.code || typeof cause?.maxSize === "number") return { error: cause };
+      return error(-2, cause?.message || String(cause));
     }
   };
   respond().then(sendResponse, cause => sendResponse(error(-2, cause?.message || String(cause))));

@@ -9,7 +9,7 @@ class PrototypeCardanoProvider extends CardanoProvider {
 
 const cardano = window.cardano ?? {};
 if (!cardano.phantomPrototype) {
-  cardano.phantomPrototype = new PrototypeCardanoProvider();
+  cardano.phantomPrototype = new PrototypeCardanoProvider({ supportedExtensions: [{ cip: 95 }] });
   window.cardano = cardano;
 }
 

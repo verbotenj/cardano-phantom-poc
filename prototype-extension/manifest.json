@@ -3,8 +3,11 @@
   "name": "Cardano Phantom-Compatible Prototype",
   "version": "0.1.0",
   "description": "Development-only MV3 Cardano transport and approval shell. Not affiliated with Phantom.",
+  "content_security_policy": { "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'" },
   "permissions": ["storage", "windows"],
-  "background": { "service_worker": "background.js" },
+  "host_permissions": ["https://preview.koios.rest/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "options_page": "setup.html",
   "content_scripts": [
     {
       "matches": ["http://127.0.0.1/*", "http://localhost/*"],

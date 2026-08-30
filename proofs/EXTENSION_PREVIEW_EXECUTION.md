@@ -14,4 +14,4 @@ Captured on 2026-08-30 against Cardano Preview with the repository's unpacked Ma
 
 The machine-readable capture is in [`extension_preview_proof.json`](extension_preview_proof.json). Reproduce the state-changing proof with `npm run proof:extension-preview` after configuring the ignored `.env.development` file.
 
-This proves the repository's unofficial installed-extension prototype can carry an SDK-originated request through extension IPC, approval, key-backed CIP-30/CIP-95 signing, submission, and Preview confirmation. It does not prove that Phantom's released browser extension supports Cardano or that Phantom produced these witnesses.
+This proves the repository's unofficial installed-extension prototype can carry a dApp-originated injected-provider request through extension IPC, approval, key-backed CIP-30/CIP-95 signing, submission, and Preview confirmation. The separately pinned SDK provider supplies that injected-provider implementation, but this runner calls the injected provider directly and does not prove a higher-level SDK invocation. It does not prove that Phantom's released browser extension supports Cardano or that Phantom produced these witnesses.

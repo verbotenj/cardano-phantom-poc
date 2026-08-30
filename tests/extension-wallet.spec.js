@@ -110,7 +110,7 @@ test("installed extension derives CIP-105 key and signs CIP-95 data", async () =
     await expect(txPopup.locator("#details")).toContainText(transactionHash.to_hex());
     await txPopup.locator("#approve").click();
     const witnessHex = await witnessPromise;
-    expect(witnessHex).toEqual(expect.any(String));
+    expect(witnessHex).toMatch(/^a100/);
     const witnesses = CSL.TransactionWitnessSet.from_hex(witnessHex).vkeys();
     expect(witnesses.len()).toBe(1);
     const witness = witnesses.get(0);

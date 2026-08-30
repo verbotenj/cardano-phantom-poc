@@ -53,6 +53,21 @@ test("installed extension injects an origin-approved base bridge", async () => {
 
     await page.goto(`http://localhost:${port}`);
     await page.waitForFunction(() => window.cardano?.phantomPrototype);
+
+    const rejectionPopupPromise = context.waitForEvent("page");
+    const rejectedEnable = page.evaluate(() => window.cardano.phantomPrototype.enable().then(() => null, error => error));
+    const rejectionPopup = await rejectionPopupPromise;
+    await rejectionPopup.waitForLoadState();
+    await rejectionPopup.locator("#reject").click();
+    await expect(rejectedEnable).resolves.toEqual({ code: -3, info: "User declined enablement." });
+
+    const closedPopupPromise = context.waitForEvent("page");
+    const closedEnable = page.evaluate(() => window.cardano.phantomPrototype.enable().then(() => null, error => error));
+    const closedPopup = await closedPopupPromise;
+    await closedPopup.waitForLoadState();
+    await closedPopup.close();
+    await expect(closedEnable).resolves.toEqual({ code: -3, info: "User declined enablement." });
+
     const baseApprovalPromise = context.waitForEvent("page");
     const baseEnablePromise = page.evaluate(() =>
       window.cardano.phantomPrototype.enable().then(api => ({

@@ -9,7 +9,8 @@
     "test:cip95": "node proofs/verify_cip95_preview.js",
     "build:extension": "node scripts/build_prototype_extension.mjs",
     "test:extension-shell": "npm run build:extension && playwright test tests/extension-shell.spec.js",
-    "test:extension-wallet": "npm run build:extension && playwright test tests/extension-wallet.spec.js"
+    "test:extension-wallet": "npm run build:extension && playwright test tests/extension-wallet.spec.js",
+    "proof:extension-preview": "npm run build:extension && RUN_PREVIEW_PROOF=1 playwright test tests/extension-preview.spec.js"
   },
   "dependencies": {
     "@dcspark/cardano-multiplatform-lib-nodejs": "^6.2.0",

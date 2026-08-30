@@ -1,5 +1,7 @@
 # Cardano Browser-Simulated SDK Proof: Verified On-Chain Logs
 
+> **Latest governance proof:** See [CIP-95 and CIP-105 Preview Proof](CIP95_execution_logs.md) for the reproducible DRep key derivation, COSE signature verification, and confirmed Preview registration/transfer. The log below is retained as the historical August 23 CIP-30 SDK transaction run.
+
 This file contains the raw, verified, and 100% successful terminal execution logs of the Browser-Simulated SDK Integration Proof (**`Track B`**).
 
 The proofs were executed programmatically on **Sunday, August 23, 2026**, successfully performing an on-chain **10.000000 ADA** transfer cryptographically signed by the actual, raw `CardanoProvider` class from `phantom-connect-sdk` and settled live on the **Cardano Preview Network**!

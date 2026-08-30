@@ -1,0 +1,26 @@
+{
+  "generatedAt": "2026-08-30T07:13:21.841Z",
+  "network": "Preview",
+  "provider": "window.cardano.phantomPrototype",
+  "sender": "addr_test1qzu4w62a96ctgesqrwyqkg9ms24p3vetwuq6jqwfqg9d0er7w7gt5py7q68qp9fv5hxgg9xhwvd9chxgal04akq5dmgq2ayu9s",
+  "receiver": "addr_test1qqp9h2z5g09cker47dax2kyexsu2s3jhulwsy00l5ef53xaceq4hh4v6v3gjkzqqz9t94vc9kxry7gktd9khzg884ldscn4xnx",
+  "transactionHash": "51a248639c074e4f567aad647a2635ce4feeaff10515187065013e4f5f333c9c",
+  "transactionBodyHash": "51a248639c074e4f567aad647a2635ce4feeaff10515187065013e4f5f333c9c",
+  "certificate": "DRepUpdate",
+  "transferLovelace": "2000000",
+  "feeLovelace": "300000",
+  "witnessCount": 2,
+  "verifiedWitnesses": [
+    {
+      "role": "payment",
+      "keyHash": "b957695d2eb0b466001b880b20bb82aa18b32b7701a901c9020ad7e4",
+      "drepHash": "b957695d2eb0b466001b880b20bb82aa18b32b7701a901c9020ad7e4"
+    },
+    {
+      "role": "drep",
+      "keyHash": "7fd1d20a835f94982a1dddbcad86994b2d615195f159aac28ad806b2",
+      "drepHash": "7fd1d20a835f94982a1dddbcad86994b2d615195f159aac28ad806b2"
+    }
+  ],
+  "confirmationsAtCapture": 1
+}

@@ -6,11 +6,13 @@ const { blake2b } = require("@noble/hashes/blake2b");
 const { entropyToMnemonic } = require("@scure/bip39");
 const { wordlist } = require("@scure/bip39/wordlists/english");
 const { chromium, expect, test } = require("@playwright/test");
+const CSL = require("@emurgo/cardano-serialization-lib-asmjs");
 
 const mnemonic = ["test", "walk", "nut", "penalty", "hip", "pave", "soap", "entry", "language", "right", "filter", "choice"].join(" ");
 const vectorDRepPublicKey = "f74d7ac30513ac1825715fd0196769761fca6e7f69de33d04ef09a0c417a752b";
 
 test("installed extension derives CIP-105 key and signs CIP-95 data", async () => {
+  test.setTimeout(90_000);
   const server = http.createServer((request, response) => {
     response.writeHead(200, { "content-type": "text/html" });
     response.end("<!doctype html><title>Wallet proof</title>");
@@ -86,6 +88,40 @@ test("installed extension derives CIP-105 key and signs CIP-95 data", async () =
     const tampered = Buffer.from(signature);
     tampered[0] ^= 1;
     expect(crypto.verify(null, encode(["Signature1", protectedBytes, Buffer.alloc(0), decodedPayload]), key, tampered)).toBe(false);
+
+    const address = CSL.Address.from_hex(publicResult.changeAddress);
+    const paymentHash = CSL.BaseAddress.from_address(address).payment_cred().to_keyhash();
+    const inputs = CSL.TransactionInputs.new();
+    inputs.add(CSL.TransactionInput.new(CSL.TransactionHash.from_hex("11".repeat(32)), 0));
+    const outputs = CSL.TransactionOutputs.new();
+    outputs.add(CSL.TransactionOutput.new(address, CSL.Value.new(CSL.BigNum.from_str("1000000"))));
+    const body = CSL.TransactionBody.new(inputs, outputs, CSL.BigNum.from_str("200000"));
+    const required = CSL.Ed25519KeyHashes.new();
+    required.add(paymentHash);
+    body.set_required_signers(required);
+    const tx = CSL.Transaction.new(body, CSL.TransactionWitnessSet.new()).to_hex();
+    const transactionHash = CSL.FixedTransaction.from_hex(tx).transaction_hash();
+    const txPopupPromise = context.waitForEvent("page");
+    const witnessPromise = page.evaluate(async tx => {
+      try { return await window.proofWallet.signTx(tx, true); } catch (walletError) { return { walletError }; }
+    }, tx);
+    const txPopup = await txPopupPromise;
+    await expect(txPopup.locator("#approve")).toHaveText("Sign");
+    await expect(txPopup.locator("#details")).toContainText(transactionHash.to_hex());
+    await txPopup.locator("#approve").click();
+    const witnessHex = await witnessPromise;
+    expect(witnessHex).toEqual(expect.any(String));
+    const witnesses = CSL.TransactionWitnessSet.from_hex(witnessHex).vkeys();
+    expect(witnesses.len()).toBe(1);
+    const witness = witnesses.get(0);
+    expect(witness.vkey().public_key().hash().to_hex()).toBe(paymentHash.to_hex());
+    expect(witness.vkey().public_key().verify(transactionHash.to_bytes(), witness.signature())).toBe(true);
+
+    const fullPopupPromise = context.waitForEvent("page");
+    const fullPromise = page.evaluate(tx => window.proofWallet.signTx(tx, false).then(() => null, error => error), tx);
+    const fullPopup = await fullPopupPromise;
+    await fullPopup.locator("#approve").click();
+    expect(await fullPromise).toEqual({ code: 1, info: "Wallet cannot produce every required transaction witness." });
 
     await setup.locator("#mnemonic").fill(entropyToMnemonic(new Uint8Array(16), wordlist));
     await setup.locator("#save").click();

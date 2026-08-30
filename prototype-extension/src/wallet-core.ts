@@ -26,7 +26,10 @@ function derive(mnemonic: string) {
 }
 
 const bytesToHex = (bytes: Uint8Array) => Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
-const hexToBytes = (hex: string) => Uint8Array.from(hex.match(/.{2}/g)?.map(byte => Number.parseInt(byte, 16)) ?? []);
+const hexToBytes = (hex: string) => {
+  if (typeof hex !== "string" || hex.length % 2 || !/^[0-9a-f]*$/i.test(hex)) throw { code: -1, info: "Expected even-length hexadecimal bytes." };
+  return Uint8Array.from(hex.match(/.{2}/g)?.map(byte => Number.parseInt(byte, 16)) ?? []);
+};
 
 function coseSign(addressHex: string, payloadHex: string, key: any) {
   const protectedBytes = encode(new Map([[1, -8], ["address", hexToBytes(addressHex)]]));
@@ -52,9 +55,20 @@ async function koios(path: string, body: object) {
 async function getUtxos(wallet: ReturnType<typeof derive>) {
   const rows = await koios("address_utxos", { _addresses: [wallet.address.to_bech32()], _extended: true });
   return rows.map((row: any) => {
-    if (row.asset_list?.length) throw new Error("Prototype does not yet support native-asset UTxOs.");
     const input = CSL.TransactionInput.new(CSL.TransactionHash.from_hex(row.tx_hash), row.tx_index);
-    const output = CSL.TransactionOutput.new(wallet.address, CSL.Value.new(CSL.BigNum.from_str(row.value)));
+    const value = CSL.Value.new(CSL.BigNum.from_str(row.value));
+    if (row.asset_list?.length) {
+      const multiAsset = CSL.MultiAsset.new();
+      for (const asset of row.asset_list) {
+        const policy = CSL.ScriptHash.from_hex(asset.policy_id);
+        const assets = multiAsset.get(policy) || CSL.Assets.new();
+        assets.insert(CSL.AssetName.new(hexToBytes(asset.asset_name)), CSL.BigNum.from_str(asset.quantity));
+        multiAsset.insert(policy, assets);
+      }
+      value.set_multiasset(multiAsset);
+    }
+    const output = CSL.TransactionOutput.new(CSL.Address.from_bech32(row.address), value);
+    if (row.datum_hash) output.set_data_hash(CSL.DataHash.from_hex(row.datum_hash));
     return CSL.TransactionUnspentOutput.new(input, output).to_hex();
   });
 }
@@ -74,6 +88,88 @@ function witnessSet(txHex: string, keys: any[]) {
   return witnesses.to_hex();
 }
 
+const credentialHash = (credential: any) => credential?.to_keyhash()?.to_hex();
+
+async function transactionWitnesses(txHex: string, partialSign: boolean, wallet: ReturnType<typeof derive>) {
+  let transaction;
+  try {
+    transaction = CSL.FixedTransaction.from_hex(txHex);
+  } catch {
+    throw { code: -1, info: "Invalid transaction CBOR." };
+  }
+  const body = transaction.body();
+  const paymentHash = wallet.payment.to_public().hash().to_hex();
+  const stakeHash = wallet.stake.to_public().hash().to_hex();
+  const drepHash = bytesToHex(blake2b(wallet.drep.to_public().as_bytes(), { dkLen: 28 }));
+  const keys = new Map([[paymentHash, wallet.payment], [stakeHash, wallet.stake], [drepHash, wallet.drep]]);
+  const required = new Set<string>();
+  let missing = false;
+
+  const knownInputs = new Set((await getUtxos(wallet)).map(hex => {
+    const input = CSL.TransactionUnspentOutput.from_hex(hex).input();
+    return `${input.transaction_id().to_hex()}#${input.index()}`;
+  }));
+  const inputs = body.inputs();
+  for (let index = 0; index < inputs.len(); index++) {
+    const input = inputs.get(index);
+    if (knownInputs.has(`${input.transaction_id().to_hex()}#${input.index()}`)) required.add(paymentHash);
+    else missing = true;
+  }
+
+  const certs = body.certs();
+  if (certs) for (let index = 0; index < certs.len(); index++) {
+    const cert = certs.get(index);
+    const kind = cert.kind();
+    if (kind === CSL.CertificateKind.GenesisKeyDelegation || kind === CSL.CertificateKind.MoveInstantaneousRewardsCert) {
+      throw { code: 3, info: "Deprecated certificate is not supported in Conway transactions." };
+    }
+    let hash;
+    if (kind === CSL.CertificateKind.DRepRegistration) hash = credentialHash(cert.as_drep_registration().voting_credential());
+    else if (kind === CSL.CertificateKind.DRepDeregistration) hash = credentialHash(cert.as_drep_deregistration().voting_credential());
+    else if (kind === CSL.CertificateKind.DRepUpdate) hash = credentialHash(cert.as_drep_update().voting_credential());
+    else {
+      const stakeCert = cert.as_stake_registration() || cert.as_stake_deregistration() || cert.as_stake_delegation() ||
+        cert.as_vote_delegation() || cert.as_stake_and_vote_delegation() || cert.as_stake_registration_and_delegation() ||
+        cert.as_vote_registration_and_delegation() || cert.as_stake_vote_registration_and_delegation();
+      hash = stakeCert && credentialHash(stakeCert.stake_credential());
+    }
+    if (hash && keys.has(hash)) required.add(hash);
+    else if (hash || [CSL.CertificateKind.PoolRegistration, CSL.CertificateKind.PoolRetirement, CSL.CertificateKind.CommitteeHotAuth, CSL.CertificateKind.CommitteeColdResign].includes(kind)) missing = true;
+  }
+
+  const explicit = body.required_signers();
+  if (explicit) for (let index = 0; index < explicit.len(); index++) {
+    const hash = explicit.get(index).to_hex();
+    if (keys.has(hash)) required.add(hash);
+    else missing = true;
+  }
+  const withdrawals = body.withdrawals();
+  if (withdrawals) {
+    const rewards = withdrawals.keys();
+    for (let index = 0; index < rewards.len(); index++) {
+      const hash = credentialHash(rewards.get(index).payment_cred());
+      if (hash === stakeHash) required.add(stakeHash);
+      else missing = true;
+    }
+  }
+  const voting = body.voting_procedures();
+  if (voting) {
+    const voters = voting.get_voters();
+    for (let index = 0; index < voters.len(); index++) {
+      const voter = voters.get(index);
+      if (voter.kind() === CSL.VoterKind.DRepKeyHash) {
+        const hash = credentialHash(voter.to_drep_credential());
+        if (hash === drepHash) required.add(drepHash);
+        else missing = true;
+      } else {
+        missing = true;
+      }
+    }
+  }
+  if ((!partialSign && missing) || required.size === 0) throw { code: 1, info: "Wallet cannot produce every required transaction witness." };
+  return witnessSet(txHex, [...required].map(hash => keys.get(hash)));
+}
+
 export const walletCore = {
   inspect(mnemonic: string) {
     const wallet = derive(mnemonic);
@@ -82,31 +178,73 @@ export const walletCore = {
       drepPublicKey: bytesToHex(wallet.drep.to_public().as_bytes()),
     };
   },
+  inspectRequest(method: string, params: any, config: { mnemonic: string }) {
+    const wallet = derive(config.mnemonic);
+    if (method === "signTx") {
+      const transaction = CSL.FixedTransaction.from_hex(params?.tx);
+      return JSON.stringify({
+        purpose: "Sign Cardano Preview transaction",
+        transactionBodyHash: transaction.transaction_hash().to_hex(),
+        partialSign: params?.partialSign === true,
+        body: JSON.parse(transaction.body().to_json()),
+      }, null, 2);
+    }
+    const address = params?.addr;
+    const payload = params?.payload;
+    hexToBytes(payload);
+    if (method === "cip95.signData") {
+      const expected = bytesToHex(blake2b(wallet.drep.to_public().as_bytes(), { dkLen: 28 }));
+      if (address !== expected) throw { code: 1, info: "DRep ID does not belong to the configured wallet." };
+    } else {
+      const accepted = [wallet.address.to_hex(), wallet.address.to_bech32(), wallet.reward.to_hex(), wallet.reward.to_bech32()];
+      if (!accepted.includes(address)) throw { code: 1, info: "Address does not belong to the configured wallet." };
+    }
+    return JSON.stringify({ purpose: method, address, payloadHex: payload }, null, 2);
+  },
   async call(method: string, params: any, config: { mnemonic: string }, cip95Enabled: boolean) {
     const wallet = derive(config.mnemonic);
     if (method === "getNetworkId") return 0;
     if (method === "getChangeAddress") return wallet.address.to_hex();
-    if (method === "getUsedAddresses") return [wallet.address.to_hex()];
-    if (method === "getUnusedAddresses") return [];
+    if (method === "getUsedAddresses" || method === "getUnusedAddresses") {
+      const [info] = await koios("address_info", { _addresses: [wallet.address.to_bech32()] });
+      const used = Boolean(info);
+      return method === "getUsedAddresses" ? (used ? [wallet.address.to_hex()] : []) : (used ? [] : [wallet.address.to_hex()]);
+    }
     if (method === "getRewardAddresses") return [wallet.reward.to_hex()];
     if (method === "getUtxos") {
       const utxos = await getUtxos(wallet);
       const paginate = params?.paginate;
-      const selected = paginate ? utxos.slice(paginate.page * paginate.limit, (paginate.page + 1) * paginate.limit) : utxos;
-      return selected.length ? selected : null;
+      if (paginate && (!Number.isSafeInteger(paginate.page) || paginate.page < 0 || !Number.isSafeInteger(paginate.limit) || paginate.limit < 1 || paginate.limit > 50)) {
+        throw { code: -1, info: "Invalid pagination.", maxSize: 50 };
+      }
+      let selected = paginate ? utxos.slice(paginate.page * paginate.limit, (paginate.page + 1) * paginate.limit) : utxos;
+      if (params?.amount) {
+        let target;
+        try { target = CSL.Value.from_hex(params.amount); } catch { throw { code: -1, info: "Invalid amount Value CBOR." }; }
+        let total = CSL.Value.zero();
+        const sufficient = [];
+        for (const hex of selected) {
+          sufficient.push(hex);
+          total = total.checked_add(CSL.TransactionUnspentOutput.from_hex(hex).output().amount());
+          try { total.checked_sub(target); selected = sufficient; return selected; } catch {}
+        }
+        return null;
+      }
+      return selected;
     }
     if (method === "getBalance") {
-      const [info] = await koios("address_info", { _addresses: [wallet.address.to_bech32()] });
-      return CSL.Value.new(CSL.BigNum.from_str(info?.balance ?? "0")).to_hex();
+      let total = CSL.Value.zero();
+      for (const hex of await getUtxos(wallet)) total = total.checked_add(CSL.TransactionUnspentOutput.from_hex(hex).output().amount());
+      return total.to_hex();
     }
-    if (method === "signTx") {
-      const keys = cip95Enabled ? [wallet.payment, wallet.stake, wallet.drep] : [wallet.payment, wallet.stake];
-      return witnessSet(params.tx, keys);
-    }
+    if (method === "signTx") return transactionWitnesses(params.tx, params.partialSign === true, wallet);
     if (method === "signData") {
-      const key = params.addr === wallet.address.to_hex() ? wallet.payment : params.addr === wallet.reward.to_hex() ? wallet.stake : null;
+      let address = params.addr;
+      try { address = CSL.Address.from_bech32(address).to_hex(); } catch {}
+      const key = address === wallet.address.to_hex() ? wallet.payment : address === wallet.reward.to_hex() ? wallet.stake : null;
       if (!key) throw new Error("Address does not belong to the configured wallet.");
-      return coseSign(params.addr, params.payload, key);
+      hexToBytes(params.payload);
+      return coseSign(address, params.payload, key);
     }
     if (method === "cip95.getPubDRepKey") return bytesToHex(wallet.drep.to_public().as_bytes());
     if (method === "cip95.getUnregisteredPubStakeKeys") {

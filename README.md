@@ -5,6 +5,7 @@ This repository contains the official, fully-functional Proof of Concept (POC) d
 **🚨 THE PRODUCT GAP RESOLVED:** Originally, the official `phantom-connect-sdk` only provided wallet integration providers for Solana and EVM (Ethereum), with **0% Cardano support**. This POC resolves this gap by designing and integrating a complete, compliant client-side **CIP-30 `CardanoProvider` class** directly into the SDK, allowing any Cardano Web3 dApp to seamlessly connect and authorize transactions.
 
 * 👉 **Read the Detailed [Architectural Gap Analysis & CIP-30 Integration Details](proofs/GAP_ANALYSIS.md)**
+* 👉 **Audit the [CIP-95 and CIP-105 Preview proof](proofs/CIP95_execution_logs.md)**
 * 👉 **View the Custom SDK Fork on GitHub: [verbotenj/phantom-connect-sdk](https://github.com/verbotenj/phantom-connect-sdk)** *(Developer Note: This integration utilizes a custom fork of `phantom-connect-sdk` because the official upstream repository lacks native Cardano/CIP-30 support. Please note that **this fork is unmaintained** and exists **strictly and exclusively as a Proof of Concept (POC)**. It has been aligned with standard CIP-30 specifications and compiles warning-free).*
 
 Supported and powered by **[Demeter.run](https://demeter.run/)** (run jointly by **[TxPipe](https://txpipe.io/)** and **[Blink Labs](https://blinklabs.io/)**, two independent engineering teams you already know from the Cardano ecosystem), providing world-class, production-grade cloud infrastructure, Node hosting, and Blockfrost API Gateways for the Cardano developer ecosystem.
@@ -81,6 +82,7 @@ Your root directory contains **two completely independent execution layers**. Th
 
 * **`run_phantom_cli_tests.sh`** *(scripts/run_phantom_cli_tests.sh)*: Verifies the mathematics & ledger connection (Independent of Phantom).
 * **`run_phantom_sdk_tests.sh`** *(scripts/run_phantom_sdk_tests.sh)*: Verifies the actual Phantom SDK & CIP-30 provider code (Direct Phantom integration).
+* **`npm run test:cip95`**: Rechecks CIP-105 DRep derivation, CIP-95 COSE signing, and the confirmed Preview transaction without spending more tADA.
 
 ---
 
@@ -136,6 +138,7 @@ Once your `.env.development` is populated, run the single local automation scrip
 
 * 👉 **Review pre-audited Standalone CLI E2E verified logs inside [proofs/CLI_execution_logs.md](proofs/CLI_execution_logs.md)**
 * 👉 **Review pre-audited Browser-Simulated SDK E2E verified logs inside [proofs/SDK_execution_logs.md](proofs/SDK_execution_logs.md)**
+* 👉 **Review reproducible CIP-95/CIP-105 Preview evidence inside [proofs/CIP95_execution_logs.md](proofs/CIP95_execution_logs.md)**
 
 Executing `./scripts/run_phantom_sdk_tests.sh` boots the gateway proxy, simulates the browser window context, and executes your actual `CardanoProvider` class from `phantom-connect-sdk` natively. You will receive a beautifully colored, real-time terminal output detailing:
 

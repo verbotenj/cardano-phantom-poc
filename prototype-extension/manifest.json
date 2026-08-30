@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Cardano Phantom-Compatible Prototype",
   "version": "0.1.0",
-  "description": "Development-only CIP-30/CIP-95 extension proof. Not affiliated with Phantom.",
+  "description": "Development-only MV3 Cardano transport and approval shell. Not affiliated with Phantom.",
   "permissions": ["storage", "windows"],
   "background": { "service_worker": "background.js" },
   "content_scripts": [

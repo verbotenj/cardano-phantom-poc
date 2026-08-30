@@ -3,6 +3,7 @@ node_modules/
 forks/
 data/
 dist/
+test-results/
 .DS_Store
 
 # Secure: Ignore all active environment credentials
